@@ -1,157 +1,139 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { useAuth } from './AuthContext'
 
-export type DimRating = {
-  name: string;
-  score: number;
-};
+export type DimRating = { name: string; score: number }
 
-export type HikeEntry = {
-  id: string;
-  trailName: string;
-  location: string;
-  distanceMi: number;
-  elevationFt: number;
-  durationHr?: number;
-  difficulty: string;
-  overallScore: number;
-  dimRatings: DimRating[];
-  notes: string;
-  date: string;
-  likes: number;
-};
+export type Hike = {
+  id: string
+  trailName: string
+  location: string
+  distanceMi: number
+  elevationFt: number
+  durationHr?: number
+  difficulty: string
+  overallScore: number
+  dimRatings: DimRating[]
+  notes: string
+  date: string
+  user_id?: string
+  trail_id?: string
+}
 
 type HikesContextType = {
-  hikes: HikeEntry[];
-  addHike: (hike: Omit<HikeEntry, "id" | "date" | "likes">) => void;
-  likedIds: Set<string>;
-  toggleLike: (id: string) => void;
-};
+  hikes: Hike[]
+  likedIds: Set<string>
+  loading: boolean
+  addHike: (hike: Omit<Hike, 'id'> & { trailId?: string }) => Promise<void>
+  toggleLike: (hikeId: string) => Promise<void>
+  refresh: () => Promise<void>
+}
 
-const HikesContext = createContext<HikesContextType | null>(null);
+const HikesContext = createContext<HikesContextType>({} as HikesContextType)
 
-const STORAGE_KEY = "summit_hikes";
-const LIKES_KEY = "summit_likes";
-
-const SEED_HIKES: HikeEntry[] = [
-  {
-    id: "1",
-    trailName: "Half Dome via John Muir",
-    location: "Yosemite NP, California",
-    distanceMi: 14.2,
-    elevationFt: 4800,
-    durationHr: 8.5,
-    difficulty: "Moderate",
-    overallScore: 4.8,
-    dimRatings: [
-      { name: "Scenery", score: 5 },
-      { name: "Difficulty", score: 4.5 },
-      { name: "Views", score: 5 },
-    ],
-    notes: "Incredible views at the top. Cables section is thrilling. Start early to avoid crowds.",
-    date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    likes: 24,
-  },
-  {
-    id: "2",
-    trailName: "Rattlesnake Ledge",
-    location: "Olallie State Park, Washington",
-    distanceMi: 4.0,
-    elevationFt: 1100,
-    durationHr: 2.5,
-    difficulty: "Easy",
-    overallScore: 4.2,
-    dimRatings: [
-      { name: "Trail Cond.", score: 4.5 },
-      { name: "Views", score: 4 },
-      { name: "Crowds", score: 2.5 },
-    ],
-    notes: "Great beginner hike. Gets very crowded on weekends. Views of the valley are worth it.",
-    date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    likes: 11,
-  },
-  {
-    id: "3",
-    trailName: "Angels Landing",
-    location: "Zion NP, Utah",
-    distanceMi: 5.4,
-    elevationFt: 1488,
-    durationHr: 4.0,
-    difficulty: "Hard",
-    overallScore: 4.9,
-    dimRatings: [
-      { name: "Scenery", score: 5 },
-      { name: "Difficulty", score: 5 },
-      { name: "Views", score: 5 },
-    ],
-    notes: "Heart-pounding finale with chains. Worth every step. Permit required.",
-    date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-    likes: 47,
-  },
-];
+function mapHike(h: any): Hike {
+  return {
+    id: h.id,
+    trailName: h.trail_name,
+    location: h.location || '',
+    distanceMi: h.distance_mi || 0,
+    elevationFt: h.elevation_ft || 0,
+    durationHr: h.duration_hr,
+    difficulty: h.difficulty || '',
+    overallScore: h.overall_score || 0,
+    dimRatings: (h.dim_ratings || []).map((d: any) => ({ name: d.name, score: d.score })),
+    notes: h.notes || '',
+    date: h.date,
+    user_id: h.user_id,
+    trail_id: h.trail_id,
+  }
+}
 
 export function HikesProvider({ children }: { children: React.ReactNode }) {
-  const [hikes, setHikes] = useState<HikeEntry[]>([]);
-  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
+  const { session } = useAuth()
+  const [hikes, setHikes] = useState<Hike[]>([])
+  const [likedIds, setLikedIds] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(false)
+
+  const fetchHikes = async () => {
+    if (!session) return
+    setLoading(true)
+    const { data } = await supabase
+      .from('hikes')
+      .select('*, dim_ratings(*)')
+      .eq('user_id', session.user.id)
+      .order('date', { ascending: false })
+    if (data) setHikes(data.map(mapHike))
+    setLoading(false)
+  }
+
+  const fetchLikes = async () => {
+    if (!session) return
+    const { data } = await supabase
+      .from('likes')
+      .select('hike_id')
+      .eq('user_id', session.user.id)
+    if (data) setLikedIds(new Set(data.map((l: any) => l.hike_id)))
+  }
 
   useEffect(() => {
-    (async () => {
-      try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        const likes = await AsyncStorage.getItem(LIKES_KEY);
-        if (stored) {
-          setHikes(JSON.parse(stored));
-        } else {
-          setHikes(SEED_HIKES);
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(SEED_HIKES));
-        }
-        if (likes) {
-          setLikedIds(new Set(JSON.parse(likes)));
-        }
-      } catch {
-        setHikes(SEED_HIKES);
-      }
-    })();
-  }, []);
+    if (session) {
+      fetchHikes()
+      fetchLikes()
+    } else {
+      setHikes([])
+      setLikedIds(new Set())
+    }
+  }, [session?.user.id])
 
-  const addHike = useCallback(
-    async (hikeData: Omit<HikeEntry, "id" | "date" | "likes">) => {
-      const newHike: HikeEntry = {
-        ...hikeData,
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        date: new Date().toISOString(),
-        likes: 0,
-      };
-      const updated = [newHike, ...hikes];
-      setHikes(updated);
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    },
-    [hikes]
-  );
+  const addHike = async (hike: Omit<Hike, 'id'> & { trailId?: string }) => {
+    if (!session) return
+    const { data: hikeData, error } = await supabase
+      .from('hikes')
+      .insert({
+        user_id: session.user.id,
+        trail_name: hike.trailName,
+        location: hike.location,
+        distance_mi: hike.distanceMi,
+        elevation_ft: hike.elevationFt,
+        duration_hr: hike.durationHr,
+        difficulty: hike.difficulty,
+        overall_score: hike.overallScore,
+        notes: hike.notes,
+        date: hike.date || new Date().toISOString(),
+        trail_id: hike.trailId || null,
+      })
+      .select()
+      .single()
 
-  const toggleLike = useCallback(
-    async (id: string) => {
-      const next = new Set(likedIds);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      setLikedIds(next);
-      await AsyncStorage.setItem(LIKES_KEY, JSON.stringify([...next]));
-    },
-    [likedIds]
-  );
+    if (error || !hikeData) return
+
+    if (hike.dimRatings && hike.dimRatings.length > 0) {
+      await supabase.from('dim_ratings').insert(
+        hike.dimRatings.map(d => ({ hike_id: hikeData.id, name: d.name, score: d.score }))
+      )
+    }
+    await fetchHikes()
+  }
+
+  const toggleLike = async (hikeId: string) => {
+    if (!session) return
+    const isLiked = likedIds.has(hikeId)
+    if (isLiked) {
+      await supabase.from('likes').delete()
+        .eq('user_id', session.user.id).eq('hike_id', hikeId)
+      setLikedIds(prev => { const next = new Set(prev); next.delete(hikeId); return next })
+    } else {
+      await supabase.from('likes').insert({ user_id: session.user.id, hike_id: hikeId })
+      setLikedIds(prev => new Set([...prev, hikeId]))
+    }
+  }
 
   return (
-    <HikesContext.Provider value={{ hikes, addHike, likedIds, toggleLike }}>
+    <HikesContext.Provider value={{ hikes, likedIds, loading, addHike, toggleLike, refresh: fetchHikes }}>
       {children}
     </HikesContext.Provider>
-  );
+  )
 }
 
-export function useHikes() {
-  const ctx = useContext(HikesContext);
-  if (!ctx) throw new Error("useHikes must be used within HikesProvider");
-  return ctx;
-}
+export const useHikes = () => useContext(HikesContext)

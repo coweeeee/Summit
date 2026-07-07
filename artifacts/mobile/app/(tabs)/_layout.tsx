@@ -23,6 +23,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "plus.circle", selected: "plus.circle.fill" }} />
         <Label>Log</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="leaderboard">
+        <Icon sf={{ default: "trophy", selected: "trophy.fill" }} />
+        <Label>Leaders</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
         <Label>Profile</Label>
@@ -67,11 +71,7 @@ function ClassicTabLayout() {
         options={{
           title: "Feed",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="house" tintColor={color} size={22} />
-            ) : (
-              <Feather name="home" size={22} color={color} />
-            ),
+            isIOS ? <SymbolView name="house" tintColor={color} size={22} /> : <Feather name="home" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -79,11 +79,7 @@ function ClassicTabLayout() {
         options={{
           title: "Discover",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="magnifyingglass" tintColor={color} size={22} />
-            ) : (
-              <Feather name="search" size={22} color={color} />
-            ),
+            isIOS ? <SymbolView name="magnifyingglass" tintColor={color} size={22} /> : <Feather name="search" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -91,11 +87,15 @@ function ClassicTabLayout() {
         options={{
           title: "Log",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="plus.circle" tintColor={color} size={24} />
-            ) : (
-              <Ionicons name="add-circle-outline" size={24} color={color} />
-            ),
+            isIOS ? <SymbolView name="plus.circle" tintColor={color} size={24} /> : <Ionicons name="add-circle-outline" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="leaderboard"
+        options={{
+          title: "Leaders",
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="trophy" tintColor={color} size={22} /> : <Feather name="award" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -103,11 +103,7 @@ function ClassicTabLayout() {
         options={{
           title: "Profile",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="person" tintColor={color} size={22} />
-            ) : (
-              <Feather name="user" size={22} color={color} />
-            ),
+            isIOS ? <SymbolView name="person" tintColor={color} size={22} /> : <Feather name="user" size={22} color={color} />,
         }}
       />
     </Tabs>
@@ -115,8 +111,6 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
+  if (isLiquidGlassAvailable()) return <NativeTabLayout />;
   return <ClassicTabLayout />;
 }

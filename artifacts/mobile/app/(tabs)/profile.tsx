@@ -1,303 +1,507 @@
 import { Feather } from "@expo/vector-icons";
-import React from "react";
-import {
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Colors from "@/constants/colors";
-import { useHikes } from "@/context/HikesContext";
+  import { useRouter } from "expo-router";
+  import React, { useEffect, useState } from "react";
+  import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    Modal,
+    Platform,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
+  } from "react-native";
+  import { useSafeAreaInsets } from "react-native-safe-area-context";
+  import Colors from "@/constants/colors";
+  import { useAuth } from "@/context/AuthContext";
+  import { useHikes } from "@/context/HikesContext";
+  import { supabase } from "@/lib/supabase";
 
-function StatCell({ value, label }: { value: string; label: string }) {
-  return (
-    <View style={styles.statCell}>
-      <Text style={styles.statCellVal}>{value}</Text>
-      <Text style={styles.statCellLbl}>{label}</Text>
-    </View>
-  );
-}
+  type SavedTrail = { id: string; name: string; location: string; difficulty: string; rating: number; distance_mi: number; elevation_ft: number; };
+  type FollowUser = { id: string; full_name: string | null; avatar_url: string | null; };
+  type BlockedUser = { id: string; full_name: string | null; avatar_url: string | null; blockRowId?: string; };
 
-function formatDateShort(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
+  const BADGES = [
+    { key: "climber",     icon: "trending-up" as const, label: "Climber",     color: Colors.green,  desc: "Gain 5,000+ ft elevation total", check: (_h: number, elev: number) => elev >= 5000 },
+    { key: "explorer",   icon: "map"         as const, label: "Explorer",    color: Colors.sky,    desc: "Log 5 hikes",  check: (h: number) => h >= 5 },
+    { key: "summit",     icon: "award"       as const, label: "Summit",      color: Colors.amber,  desc: "Log 10 hikes", check: (h: number) => h >= 10 },
+    { key: "trailblazer",icon: "zap"         as const, label: "Trailblazer", color: "#a89fd4",     desc: "Log 25 hikes", check: (h: number) => h >= 25 },
+    { key: "earlybird",  icon: "sun"         as const, label: "Early Bird",  color: Colors.amber2, desc: "Coming soon",  check: () => false },
+  ];
 
-export default function ProfileScreen() {
-  const { hikes } = useHikes();
-  const insets = useSafeAreaInsets();
-  const topPad = Platform.OS === "web" ? 67 : insets.top;
+  function formatDateShort(iso: string): string {
+    return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+  function getDiffColor(diff: string) {
+    switch (diff?.toLowerCase()) {
+      case "easy": return Colors.green;
+      case "moderate": return Colors.amber;
+      case "hard": return Colors.red;
+      default: return Colors.text3;
+    }
+  }
+  function getInitials(name: string | null) {
+    if (!name) return "?";
+    return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+  }
 
-  const totalMiles = hikes.reduce((s, h) => s + h.distanceMi, 0);
-  const totalElev = hikes.reduce((s, h) => s + h.elevationFt, 0);
+  function StatCell({ value, label, onPress }: { value: string; label: string; onPress?: () => void }) {
+    return (
+      <Pressable style={styles.statCell} onPress={onPress} disabled={!onPress}>
+        <Text style={styles.statCellVal}>{value}</Text>
+        <Text style={styles.statCellLbl}>{label}</Text>
+      </Pressable>
+    );
+  }
 
-  const formatElev = (ft: number) => {
-    if (ft >= 1000) return `${(ft / 1000).toFixed(1)}k`;
-    return ft.toString();
-  };
+  export default function ProfileScreen() {
+    const { profile, signOut } = useAuth();
+    const { hikes, refresh, loading: hikesLoading } = useHikes();
+    const insets = useSafeAreaInsets();
+    const topPad = Platform.OS === "web" ? 67 : insets.top;
+    const router = useRouter();
 
-  return (
-    <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: topPad + 8 }]}>
-        <Text style={styles.title}>Profile</Text>
-        <View style={styles.settingsBtn}>
-          <Feather name="settings" size={20} color={Colors.text3} />
+    const [activeTab, setActiveTab] = useState<"hikes" | "saved" | "blocked">("hikes");
+    const [followingCount, setFollowingCount] = useState(0);
+    const [followerCount, setFollowerCount] = useState(0);
+    const [savedTrails, setSavedTrails] = useState<SavedTrail[]>([]);
+    const [savedLoading, setSavedLoading] = useState(false);
+    const [selectedBadge, setSelectedBadge] = useState<typeof BADGES[0] | null>(null);
+    const [showFollowModal, setShowFollowModal] = useState<"followers" | "following" | null>(null);
+    const [followUsers, setFollowUsers] = useState<FollowUser[]>([]);
+    const [followModalLoading, setFollowModalLoading] = useState(false);
+    const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
+    const [blockedLoading, setBlockedLoading] = useState(false);
+
+    const totalMiles = hikes.reduce((s, h) => s + h.distanceMi, 0);
+    const totalElev  = hikes.reduce((s, h) => s + h.elevationFt, 0);
+
+    const fetchCounts = async () => {
+      if (!profile) return;
+      const [{ count: following }, { count: followers }] = await Promise.all([
+        supabase.from("follows").select("*", { count: "exact", head: true }).eq("follower_id", profile.id),
+        supabase.from("follows").select("*", { count: "exact", head: true }).eq("following_id", profile.id),
+      ]);
+      setFollowingCount(following || 0);
+      setFollowerCount(followers || 0);
+    };
+
+    const fetchSaved = async () => {
+      if (!profile) return;
+      setSavedLoading(true);
+      const { data: trailsData } = await supabase.from("want_to_hike").select("trail_id, trails(*)").eq("user_id", profile.id).order("created_at", { ascending: false });
+      if (trailsData) setSavedTrails(trailsData.map((d: any) => d.trails).filter(Boolean));
+      setSavedLoading(false);
+    };
+
+    const fetchBlockedUsers = async () => {
+      if (!profile) return;
+      setBlockedLoading(true);
+      const { data: blockRows } = await supabase.from("blocks").select("id, blocked_id").eq("blocker_id", profile.id);
+      if (blockRows && blockRows.length > 0) {
+        const ids = blockRows.map((r: any) => r.blocked_id);
+        const { data: profiles } = await supabase.from("profiles").select("id, full_name, avatar_url").in("id", ids);
+        if (profiles) {
+          const rowMap: Record<string, string> = {};
+          blockRows.forEach((r: any) => { rowMap[r.blocked_id] = r.id; });
+          setBlockedUsers(profiles.map((p: any) => ({ ...p, blockRowId: rowMap[p.id] })));
+        }
+      } else {
+        setBlockedUsers([]);
+      }
+      setBlockedLoading(false);
+    };
+
+    const unblockUser = (userId: string, name: string | null) => {
+      Alert.alert(
+        "Unblock " + (name || "this user") + "?",
+        "They will be able to see your posts again.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Unblock", onPress: async () => {
+            if (!profile) return;
+            await supabase.from("blocks").delete().eq("blocker_id", profile.id).eq("blocked_id", userId);
+            setBlockedUsers(prev => prev.filter(u => u.id !== userId));
+          }},
+        ]
+      );
+    };
+
+    const openFollowModal = async (type: "followers" | "following") => {
+      if (!profile) return;
+      setShowFollowModal(type);
+      setFollowModalLoading(true);
+      let userIds: string[] = [];
+      if (type === "followers") {
+        const { data } = await supabase.from("follows").select("follower_id").eq("following_id", profile.id);
+        userIds = (data || []).map((f: any) => f.follower_id);
+      } else {
+        const { data } = await supabase.from("follows").select("following_id").eq("follower_id", profile.id);
+        userIds = (data || []).map((f: any) => f.following_id);
+      }
+      if (userIds.length > 0) {
+        const { data: users } = await supabase.from("profiles").select("id, full_name, avatar_url").in("id", userIds);
+        setFollowUsers(users || []);
+      } else {
+        setFollowUsers([]);
+      }
+      setFollowModalLoading(false);
+    };
+
+    useEffect(() => { fetchCounts(); fetchSaved(); fetchBlockedUsers(); }, [profile?.id]);
+
+    const onRefresh = async () => { await Promise.all([refresh(), fetchCounts(), fetchSaved(), fetchBlockedUsers()]); };
+
+    const unsaveTrail = async (trailId: string) => {
+      if (!profile) return;
+      await supabase.from("want_to_hike").delete().eq("user_id", profile.id).eq("trail_id", trailId);
+      setSavedTrails(prev => prev.filter(t => t.id !== trailId));
+    };
+
+    const formatElev = (ft: number) => ft >= 1000 ? `${(ft / 1000).toFixed(1)}k` : ft.toString();
+    const avatarUrl = (profile as any)?.avatar_url;
+
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: topPad + 8 }]}>
+          <Text style={styles.title}>Profile</Text>
+          <Pressable onPress={() => router.push("/settings")} style={({ pressed }) => [styles.settingsBtn, { opacity: pressed ? 0.6 : 1 }]}>
+            <Feather name="settings" size={20} color={Colors.text3} />
+          </Pressable>
         </View>
-      </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: Platform.OS === "web" ? 84 : 100 }}
-      >
-        <View style={styles.profileHeader}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>A</Text>
-          </View>
-          <Text style={styles.name}>Alex L.</Text>
-          <Text style={styles.bio}>Exploring trails one step at a time</Text>
-
-          <View style={styles.statsRow}>
-            <StatCell value={hikes.length.toString()} label="Hikes" />
-            <StatCell value={totalMiles.toFixed(0)} label="Miles" />
-            <StatCell value={formatElev(totalElev)} label="Elev. ft" />
-            <StatCell value="18" label="Following" />
-          </View>
-        </View>
-
-        <View style={styles.badgesSection}>
-          <Text style={styles.sectionLabel}>Badges</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.badgesRow}>
-            {[
-              { icon: "mountain" as const, label: "Summit", color: Colors.amber },
-              { icon: "map" as const, label: "Explorer", color: Colors.sky },
-              { icon: "trending-up" as const, label: "Climber", color: Colors.green },
-              { icon: "sun" as const, label: "Early Bird", color: Colors.amber2 },
-            ].map((b) => (
-              <View key={b.label} style={styles.badge}>
-                <View style={[styles.badgeIcon, { borderColor: b.color }]}>
-                  <Feather name={b.icon} size={22} color={b.color} />
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: Platform.OS === "web" ? 84 : 100 }}
+          refreshControl={<RefreshControl refreshing={hikesLoading} onRefresh={onRefresh} tintColor={Colors.accent} />}
+        >
+          <View style={styles.profileHeader}>
+            <Pressable onPress={() => router.push("/settings")} style={styles.avatarWrap}>
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
+              ) : (
+                <View style={styles.avatarFallback}>
+                  <Text style={styles.avatarText}>{getInitials(profile?.full_name || null)}</Text>
                 </View>
-                <Text style={styles.badgeLabel}>{b.label}</Text>
+              )}
+              <View style={styles.avatarEditDot}>
+                <Feather name="camera" size={10} color="#fff" />
               </View>
-            ))}
-          </ScrollView>
-        </View>
+            </Pressable>
+            <Text style={styles.name}>{profile?.full_name || "Hiker"}</Text>
+            <Text style={styles.bio}>{(profile as any)?.bio || "Exploring trails one step at a time"}</Text>
 
-        <Text style={styles.sectionLabel}>Recent Hikes</Text>
-
-        {hikes.length === 0 ? (
-          <View style={styles.empty}>
-            <Feather name="map" size={36} color={Colors.text3} />
-            <Text style={styles.emptyText}>No hikes yet</Text>
-            <Text style={styles.emptySubtext}>Log your first hike to get started</Text>
-          </View>
-        ) : (
-          hikes.map((hike) => (
-            <View key={hike.id} style={styles.hikeItem}>
-              <View style={styles.hikeIcon}>
-                <Feather name="trending-up" size={18} color={Colors.green} />
-              </View>
-              <View style={styles.hikeInfo}>
-                <Text style={styles.hikeName} numberOfLines={1}>{hike.trailName}</Text>
-                <Text style={styles.hikeMeta}>
-                  {hike.distanceMi.toFixed(1)} mi · {hike.elevationFt.toLocaleString()} ft · {formatDateShort(hike.date)}
-                </Text>
-              </View>
-              <View style={styles.hikeRating}>
-                <Feather name="star" size={12} color={Colors.amber2} />
-                <Text style={styles.hikeRatingText}>{hike.overallScore.toFixed(1)}</Text>
-              </View>
+            <View style={styles.statsRow}>
+              <StatCell value={hikes.length.toString()} label="Hikes" />
+              <StatCell value={totalMiles.toFixed(0)} label="Miles" />
+              <StatCell value={formatElev(totalElev)} label="Elev. ft" />
+              <StatCell value={followingCount.toString()} label="Following" onPress={() => openFollowModal("following")} />
+              <StatCell value={followerCount.toString()} label="Followers" onPress={() => openFollowModal("followers")} />
             </View>
-          ))
-        )}
-      </ScrollView>
-    </View>
-  );
-}
+          </View>
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bg,
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  title: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 26,
-    color: Colors.text,
-    letterSpacing: -0.5,
-  },
-  settingsBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.surface2,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Colors.border2,
-  },
-  profileHeader: {
-    alignItems: "center",
-    paddingTop: 8,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-  },
-  avatar: {
-    width: 74,
-    height: 74,
-    borderRadius: 37,
-    backgroundColor: Colors.surface2,
-    borderWidth: 2.5,
-    borderColor: Colors.green,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-  avatarText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 30,
-    color: Colors.accent,
-  },
-  name: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 22,
-    color: Colors.text,
-    marginBottom: 4,
-  },
-  bio: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.text3,
-    marginBottom: 20,
-    textAlign: "center",
-  },
-  statsRow: {
-    flexDirection: "row",
-    width: "100%",
-    borderRadius: 12,
-    overflow: "hidden",
-    gap: 1,
-    backgroundColor: Colors.border,
-  },
-  statCell: {
-    flex: 1,
-    backgroundColor: Colors.bg3,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  statCellVal: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 20,
-    color: Colors.accent,
-  },
-  statCellLbl: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 10,
-    color: Colors.text3,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginTop: 2,
-  },
-  badgesSection: {
-    marginBottom: 4,
-  },
-  badgesRow: {
-    paddingHorizontal: 20,
-    gap: 16,
-    paddingBottom: 4,
-  },
-  badge: {
-    alignItems: "center",
-    gap: 6,
-  },
-  badgeIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.bg3,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badgeLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 11,
-    color: Colors.text3,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: Colors.text3,
-    paddingHorizontal: 20,
-    paddingBottom: 10,
-    paddingTop: 16,
-    fontFamily: "Inter_500Medium",
-  },
-  empty: {
-    alignItems: "center",
-    paddingTop: 60,
-    gap: 10,
-  },
-  emptyText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    color: Colors.text2,
-  },
-  emptySubtext: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.text3,
-  },
-  hikeItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  hikeIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: Colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  hikeInfo: {
-    flex: 1,
-  },
-  hikeName: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    color: Colors.text,
-    marginBottom: 2,
-  },
-  hikeMeta: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.text3,
-  },
-  hikeRating: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  hikeRatingText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.amber2,
-  },
-});
+          {/* Badges */}
+          <View style={styles.badgesSection}>
+            <Text style={styles.sectionLabel}>Badges</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.badgesRow}>
+              {BADGES.map(b => {
+                const unlocked = b.check(hikes.length, totalElev);
+                return (
+                  <Pressable key={b.key} style={[styles.badge, !unlocked && styles.badgeLocked]} onPress={() => setSelectedBadge(b)}>
+                    <View style={[styles.badgeIcon, { borderColor: unlocked ? b.color : Colors.border }]}>
+                      <Feather name={b.icon} size={22} color={unlocked ? b.color : Colors.text3} />
+                    </View>
+                    <Text style={[styles.badgeLabel, !unlocked && { color: Colors.text3 }]}>{b.label}</Text>
+                    {unlocked && <View style={styles.badgeCheck}><Feather name="check" size={8} color="#fff" /></View>}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* Tab switcher */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabSwitcherContent} style={styles.tabSwitcherWrap}>
+            <Pressable onPress={() => setActiveTab("hikes")} style={[styles.tabBtn, activeTab === "hikes" && styles.tabBtnActive]}>
+              <Feather name="trending-up" size={14} color={activeTab === "hikes" ? "#fff" : Colors.text3} />
+              <Text style={[styles.tabBtnText, activeTab === "hikes" && styles.tabBtnTextActive]}>Hikes ({hikes.length})</Text>
+            </Pressable>
+            <Pressable onPress={() => setActiveTab("saved")} style={[styles.tabBtn, activeTab === "saved" && styles.tabBtnActive]}>
+              <Feather name="bookmark" size={14} color={activeTab === "saved" ? "#fff" : Colors.text3} />
+              <Text style={[styles.tabBtnText, activeTab === "saved" && styles.tabBtnTextActive]}>Saved ({savedTrails.length})</Text>
+            </Pressable>
+            <Pressable onPress={() => setActiveTab("blocked")} style={[styles.tabBtn, activeTab === "blocked" && styles.tabBtnActive]}>
+              <Feather name="slash" size={14} color={activeTab === "blocked" ? "#fff" : Colors.text3} />
+              <Text style={[styles.tabBtnText, activeTab === "blocked" && styles.tabBtnTextActive]}>Blocked ({blockedUsers.length})</Text>
+            </Pressable>
+          </ScrollView>
+
+          {/* Hikes tab */}
+          {activeTab === "hikes" && (
+            hikes.length === 0 ? (
+              <View style={styles.empty}>
+                <Feather name="map" size={36} color={Colors.text3} />
+                <Text style={styles.emptyText}>No hikes yet</Text>
+                <Text style={styles.emptySubtext}>Log your first hike to get started</Text>
+              </View>
+            ) : (
+              hikes.map(hike => (
+                <View key={hike.id} style={styles.hikeItem}>
+                  <View style={styles.hikeIcon}><Feather name="trending-up" size={18} color={Colors.green} /></View>
+                  <View style={styles.hikeInfo}>
+                    <Text style={styles.hikeName} numberOfLines={1}>{hike.trailName}</Text>
+                    <Text style={styles.hikeMeta}>{hike.distanceMi.toFixed(1)} mi · {hike.elevationFt.toLocaleString()} ft · {formatDateShort(hike.date)}</Text>
+                  </View>
+                  {hike.overallScore > 0 && (
+                    <View style={styles.hikeRating}>
+                      <Feather name="star" size={12} color={Colors.amber2} />
+                      <Text style={styles.hikeRatingText}>{hike.overallScore.toFixed(1)}</Text>
+                    </View>
+                  )}
+                </View>
+              ))
+            )
+          )}
+
+          {/* Saved tab */}
+          {activeTab === "saved" && (
+            savedLoading ? (
+              <View style={styles.empty}><ActivityIndicator color={Colors.accent} /></View>
+            ) : savedTrails.length === 0 ? (
+              <View style={styles.empty}>
+                <Feather name="bookmark" size={36} color={Colors.text3} />
+                <Text style={styles.emptyText}>Nothing saved yet</Text>
+                <Text style={styles.emptySubtext}>Bookmark trails from Discover to save them here</Text>
+                <Pressable onPress={() => router.push("/(tabs)/discover" as any)} style={styles.discoverBtn}>
+                  <Text style={styles.discoverBtnText}>Browse Trails</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.savedSectionLabel}>Saved Trails</Text>
+                {savedTrails.map(trail => {
+                  const dc = getDiffColor(trail.difficulty);
+                  return (
+                    <Pressable key={trail.id} style={({ pressed }) => [styles.savedCard, { opacity: pressed ? 0.9 : 1 }]} onPress={() => router.push({ pathname: "/trail-detail", params: { id: trail.id } })}>
+                      <View style={styles.savedCardLeft}>
+                        <View style={styles.savedCardHeader}>
+                          <Text style={styles.savedTrailName} numberOfLines={1}>{trail.name}</Text>
+                          <Pressable onPress={() => unsaveTrail(trail.id)} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+                            <Feather name="bookmark" size={16} color={Colors.accent} />
+                          </Pressable>
+                        </View>
+                        <Text style={styles.savedTrailLocation}>{trail.location}</Text>
+                        <View style={styles.savedTrailStats}>
+                          <View style={[styles.savedDiffBadge, { borderColor: dc + "55", backgroundColor: dc + "18" }]}>
+                            <Text style={[styles.savedDiffText, { color: dc }]}>{trail.difficulty}</Text>
+                          </View>
+                          <Text style={styles.savedStatText}>{trail.distance_mi} mi</Text>
+                          <Text style={styles.savedStatText}>{trail.elevation_ft?.toLocaleString()} ft</Text>
+                        </View>
+                      </View>
+                      <Feather name="chevron-right" size={16} color={Colors.text3} />
+                    </Pressable>
+                  );
+                })}
+              </>
+            )
+          )}
+
+          {/* Blocked tab */}
+          {activeTab === "blocked" && (
+            blockedLoading ? (
+              <View style={styles.empty}><ActivityIndicator color={Colors.accent} /></View>
+            ) : blockedUsers.length === 0 ? (
+              <View style={styles.empty}>
+                <Feather name="slash" size={36} color={Colors.text3} />
+                <Text style={styles.emptyText}>No blocked users</Text>
+                <Text style={styles.emptySubtext}>Users you block won't see your content and you won't see theirs</Text>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.savedSectionLabel}>Blocked Users ({blockedUsers.length})</Text>
+                {blockedUsers.map(u => (
+                  <View key={u.id} style={styles.blockedRow}>
+                    <View style={styles.blockedAvatar}>
+                      {u.avatar_url ? (
+                        <Image source={{ uri: u.avatar_url }} style={styles.blockedAvatarImg} />
+                      ) : (
+                        <Text style={styles.blockedAvatarText}>{getInitials(u.full_name)}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.blockedName} numberOfLines={1}>{u.full_name || "Anonymous Hiker"}</Text>
+                    <Pressable
+                      onPress={() => unblockUser(u.id, u.full_name)}
+                      style={({ pressed }) => [styles.unblockBtn, { opacity: pressed ? 0.7 : 1 }]}
+                    >
+                      <Text style={styles.unblockBtnText}>Unblock</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </>
+            )
+          )}
+
+          <Pressable onPress={signOut} style={({ pressed }) => [styles.signOutBtn, { opacity: pressed ? 0.7 : 1 }]}>
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </Pressable>
+        </ScrollView>
+
+        {/* Badge info modal */}
+        <Modal visible={!!selectedBadge} transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => setSelectedBadge(null)}>
+            <View style={styles.badgeModal}>
+              {selectedBadge && (() => {
+                const unlocked = selectedBadge.check(hikes.length, totalElev);
+                return (
+                  <>
+                    <View style={[styles.badgeModalIcon, { borderColor: unlocked ? selectedBadge.color : Colors.border, opacity: unlocked ? 1 : 0.5 }]}>
+                      <Feather name={selectedBadge.icon} size={32} color={unlocked ? selectedBadge.color : Colors.text3} />
+                    </View>
+                    <Text style={styles.badgeModalName}>{selectedBadge.label}</Text>
+                    <Text style={styles.badgeModalDesc}>{selectedBadge.desc}</Text>
+                    {unlocked ? (
+                      <View style={styles.badgeModalUnlocked}>
+                        <Feather name="check-circle" size={14} color={Colors.green} />
+                        <Text style={styles.badgeModalUnlockedText}>Unlocked!</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.badgeModalLocked}>
+                        <Feather name="lock" size={14} color={Colors.text3} />
+                        <Text style={styles.badgeModalLockedText}>Keep hiking to earn this</Text>
+                      </View>
+                    )}
+                    {selectedBadge.key === "explorer"    && !unlocked && <Text style={styles.badgeProgress}>{hikes.length} / 5 hikes</Text>}
+                    {selectedBadge.key === "summit"      && !unlocked && <Text style={styles.badgeProgress}>{hikes.length} / 10 hikes</Text>}
+                    {selectedBadge.key === "trailblazer" && !unlocked && <Text style={styles.badgeProgress}>{hikes.length} / 25 hikes</Text>}
+                    {selectedBadge.key === "climber"     && !unlocked && <Text style={styles.badgeProgress}>{totalElev.toLocaleString()} / 5,000 ft elevation</Text>}
+                  </>
+                );
+              })()}
+            </View>
+          </Pressable>
+        </Modal>
+
+        {/* Followers/Following modal */}
+        <Modal visible={!!showFollowModal} animationType="slide" presentationStyle="pageSheet">
+          <View style={[styles.followModalContainer, { paddingTop: insets.top + 16 }]}>
+            <View style={styles.followModalHeader}>
+              <Text style={styles.followModalTitle}>{showFollowModal === "followers" ? "Followers" : "Following"}</Text>
+              <Pressable onPress={() => setShowFollowModal(null)}>
+                <Feather name="x" size={22} color={Colors.text} />
+              </Pressable>
+            </View>
+            {followModalLoading ? (
+              <View style={styles.center}><ActivityIndicator color={Colors.accent} /></View>
+            ) : followUsers.length === 0 ? (
+              <View style={styles.center}>
+                <Text style={styles.emptyText}>{showFollowModal === "followers" ? "No followers yet" : "Not following anyone yet"}</Text>
+              </View>
+            ) : (
+              <ScrollView>
+                {followUsers.map(u => (
+                  <Pressable key={u.id} style={styles.followUserRow} onPress={() => { setShowFollowModal(null); router.push({ pathname: "/user-profile", params: { id: u.id } }); }}>
+                    <View style={styles.followUserAvatar}>
+                      {u.avatar_url ? (
+                        <Image source={{ uri: u.avatar_url }} style={styles.followUserAvatarImg} />
+                      ) : (
+                        <Text style={styles.followUserAvatarText}>{getInitials(u.full_name)}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.followUserName}>{u.full_name || "Anonymous Hiker"}</Text>
+                    <Feather name="chevron-right" size={16} color={Colors.text3} />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </Modal>
+      </View>
+    );
+  }
+
+  const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: Colors.bg },
+    header: { paddingHorizontal: 20, paddingBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    title: { fontFamily: "Inter_700Bold", fontSize: 26, color: Colors.text, letterSpacing: -0.5 },
+    settingsBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.surface2, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border2 },
+    profileHeader: { alignItems: "center", paddingTop: 8, paddingBottom: 20, paddingHorizontal: 20 },
+    avatarWrap: { position: "relative", marginBottom: 12 },
+    avatarImg: { width: 74, height: 74, borderRadius: 37, borderWidth: 2.5, borderColor: Colors.green },
+    avatarFallback: { width: 74, height: 74, borderRadius: 37, backgroundColor: Colors.surface2, borderWidth: 2.5, borderColor: Colors.green, alignItems: "center", justifyContent: "center" },
+    avatarText: { fontFamily: "Inter_700Bold", fontSize: 28, color: Colors.accent },
+    avatarEditDot: { position: "absolute", bottom: 0, right: 0, width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.green2, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: Colors.bg },
+    name: { fontFamily: "Inter_700Bold", fontSize: 22, color: Colors.text, marginBottom: 4 },
+    bio: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, marginBottom: 20, textAlign: "center" },
+    statsRow: { flexDirection: "row", width: "100%", borderRadius: 12, overflow: "hidden", gap: 1, backgroundColor: Colors.border },
+    statCell: { flex: 1, backgroundColor: Colors.bg3, paddingVertical: 12, alignItems: "center" },
+    statCellVal: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.accent },
+    statCellLbl: { fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.text3, textTransform: "uppercase", letterSpacing: 0.3, marginTop: 2 },
+    badgesSection: { marginBottom: 4 },
+    badgesRow: { paddingHorizontal: 20, gap: 16, paddingBottom: 4 },
+    badge: { alignItems: "center", gap: 6, position: "relative" },
+    badgeLocked: { opacity: 0.45 },
+    badgeIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.bg3, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+    badgeLabel: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.text3 },
+    badgeCheck: { position: "absolute", top: 0, right: 0, width: 16, height: 16, borderRadius: 8, backgroundColor: Colors.green, alignItems: "center", justifyContent: "center" },
+    sectionLabel: { fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: Colors.text3, paddingHorizontal: 20, paddingBottom: 10, paddingTop: 16, fontFamily: "Inter_500Medium" },
+    savedSectionLabel: { fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: Colors.text3, paddingHorizontal: 20, paddingBottom: 8, paddingTop: 16, fontFamily: "Inter_500Medium" },
+    tabSwitcherWrap: { marginHorizontal: 16, marginTop: 16, marginBottom: 4 },
+    tabSwitcherContent: { backgroundColor: Colors.bg3, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, padding: 3, gap: 3 },
+    tabBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, paddingHorizontal: 14, borderRadius: 8 },
+    tabBtnActive: { backgroundColor: Colors.green2 },
+    tabBtnText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.text3 },
+    tabBtnTextActive: { color: "#fff" },
+    empty: { alignItems: "center", paddingTop: 48, paddingBottom: 24, gap: 10 },
+    emptyText: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text2 },
+    emptySubtext: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, textAlign: "center", paddingHorizontal: 32 },
+    discoverBtn: { marginTop: 8, paddingVertical: 10, paddingHorizontal: 24, borderRadius: 20, backgroundColor: Colors.green2 },
+    discoverBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "#fff" },
+    hikeItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
+    hikeIcon: { width: 40, height: 40, borderRadius: 10, backgroundColor: Colors.surface, alignItems: "center", justifyContent: "center" },
+    hikeInfo: { flex: 1 },
+    hikeName: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text, marginBottom: 2 },
+    hikeMeta: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3 },
+    hikeRating: { flexDirection: "row", alignItems: "center", gap: 3 },
+    hikeRatingText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.amber2 },
+    savedCard: { flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginBottom: 10, backgroundColor: Colors.bg3, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, padding: 14 },
+    savedCardLeft: { flex: 1 },
+    savedCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 3 },
+    savedTrailName: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.text, flex: 1, marginRight: 8 },
+    savedTrailLocation: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3, marginBottom: 8 },
+    savedTrailStats: { flexDirection: "row", alignItems: "center", gap: 8 },
+    savedDiffBadge: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 20, borderWidth: 1 },
+    savedDiffText: { fontSize: 11, fontFamily: "Inter_500Medium" },
+    savedStatText: { fontSize: 12, color: Colors.text2, fontFamily: "Inter_400Regular" },
+    blockedRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
+    blockedAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surface2, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+    blockedAvatarImg: { width: 40, height: 40, borderRadius: 20 },
+    blockedAvatarText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text3 },
+    blockedName: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text },
+    unblockBtn: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3 },
+    unblockBtnText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.text2 },
+    signOutBtn: { marginHorizontal: 20, marginTop: 32, marginBottom: 12, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: Colors.red, alignItems: "center" },
+    signOutText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.red },
+    modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: 32 },
+    badgeModal: { backgroundColor: Colors.bg2, borderRadius: 20, padding: 28, alignItems: "center", width: "100%", borderWidth: 1, borderColor: Colors.border },
+    badgeModalIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: Colors.bg3, borderWidth: 2, alignItems: "center", justifyContent: "center", marginBottom: 14 },
+    badgeModalName: { fontFamily: "Inter_700Bold", fontSize: 20, color: Colors.text, marginBottom: 6 },
+    badgeModalDesc: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3, textAlign: "center", marginBottom: 16 },
+    badgeModalUnlocked: { flexDirection: "row", alignItems: "center", gap: 6 },
+    badgeModalUnlockedText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.green },
+    badgeModalLocked: { flexDirection: "row", alignItems: "center", gap: 6 },
+    badgeModalLockedText: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3 },
+    badgeProgress: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.text2, marginTop: 8 },
+    followModalContainer: { flex: 1, backgroundColor: Colors.bg },
+    followModalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
+    followModalTitle: { fontFamily: "Inter_600SemiBold", fontSize: 18, color: Colors.text },
+    center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60 },
+    followUserRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
+    followUserAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: Colors.surface2, alignItems: "center", justifyContent: "center" },
+    followUserAvatarImg: { width: 42, height: 42, borderRadius: 21 },
+    followUserAvatarText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.accent },
+    followUserName: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.text },
+  });
+  
