@@ -58,16 +58,13 @@ export default function SignupScreen() {
     }
     setUsernameStatus("checking");
     const { data, error } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("username", value)
-      .maybeSingle();
+      .rpc("is_username_available", { check_username: value });
     if (seq !== checkSeq.current) return false;
     if (error) {
       setUsernameStatus("error");
       return false;
     }
-    if (data) {
+    if (!data) {
       setUsernameStatus("taken");
       return false;
     }
