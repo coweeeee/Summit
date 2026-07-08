@@ -80,9 +80,32 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const router = useRouter();
-  const { profile, signOut, refreshProfile } = useAuth();
+  const { profile, session, signOut, refreshProfile } = useAuth();
 
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [deleteConfirmText, setDeleteConfirmText] = useState("");
+    const [deleteLoading, setDeleteLoading] = useState(false);
+
+    const handleDeleteAccount = async () => {
+      if (!session) return;
+      setDeleteLoading(true);
+      try {
+        const { data, error } = await supabase.functions.invoke("delete-account");
+        if (error || data?.error) {
+          setDeleteLoading(false);
+          Alert.alert("Deletion failed", error?.message || data?.error || "Something went wrong. Please try again.");
+          return;
+        }
+        setDeleteLoading(false);
+        setShowDeleteModal(false);
+        await signOut();
+      } catch (e: any) {
+        setDeleteLoading(false);
+        Alert.alert("Deletion failed", e?.message || "Something went wrong. Please try again.");
+      }
+    };
+
+    const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState(profile?.full_name || "");
   const [editBio, setEditBio] = useState((profile as any)?.bio || "");
   const [editUsername, setEditUsername] = useState((profile as any)?.username || "");
@@ -263,10 +286,68 @@ export default function SettingsScreen() {
         <SectionHeader title="Danger zone" />
         <View style={styles.section}>
           <SettingsRow icon="log-out" label="Sign Out" onPress={signOut} danger />
+          <SettingsRow
+            icon="trash-2"
+            label="Delete Account"
+            onPress={() => { setDeleteConfirmText(""); setShowDeleteModal(true); }}
+            danger
+          />
         </View>
       </ScrollView>
 
-      <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet">
+      {/* ── Delete Account confirmation modal ── */}
+        <Modal visible={showDeleteModal} transparent animationType="fade">
+          <Pressable
+            style={styles.deleteOverlay}
+            onPress={() => !deleteLoading && setShowDeleteModal(false)}
+          >
+            <Pressable style={styles.deleteSheet} onPress={() => {}}>
+              <View style={styles.deleteIconWrap}>
+                <Feather name="alert-triangle" size={28} color={Colors.red} />
+              </View>
+              <Text style={styles.deleteTitle}>Delete your account?</Text>
+              <Text style={styles.deleteBody}>
+                This will permanently delete your account, all your hikes, photos, comments, and followers.{"
+
+"}
+                <Text style={styles.deleteBodyBold}>This cannot be undone.</Text>
+              </Text>
+              <Text style={styles.deleteInputLabel}>Type DELETE to confirm</Text>
+              <TextInput
+                style={styles.deleteInput}
+                value={deleteConfirmText}
+                onChangeText={setDeleteConfirmText}
+                placeholder="DELETE"
+                placeholderTextColor={Colors.text3}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={!deleteLoading}
+              />
+              <Pressable
+                onPress={handleDeleteAccount}
+                disabled={deleteConfirmText.toUpperCase() !== "DELETE" || deleteLoading}
+                style={[
+                  styles.deleteConfirmBtn,
+                  (deleteConfirmText.toUpperCase() !== "DELETE" || deleteLoading) && styles.deleteConfirmBtnDisabled,
+                ]}
+              >
+                {deleteLoading
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={styles.deleteConfirmText}>Permanently Delete Account</Text>
+                }
+              </Pressable>
+              <Pressable
+                onPress={() => setShowDeleteModal(false)}
+                disabled={deleteLoading}
+                style={({ pressed }) => [styles.deleteCancelBtn, { opacity: pressed || deleteLoading ? 0.5 : 1 }]}
+              >
+                <Text style={styles.deleteCancelText}>Cancel</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet">
         <View style={[styles.modalContainer, { paddingTop: insets.top + 16 }]}>
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setShowEditModal(false)}>
@@ -391,4 +472,17 @@ const styles = StyleSheet.create({
   },
   modalTextarea: { minHeight: 100, textAlignVertical: "top" },
   charCount: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3, textAlign: "right", marginTop: 4 },
-});
+    deleteOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "flex-end" },
+    deleteSheet: { backgroundColor: Colors.bg2, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 28, paddingBottom: 44, alignItems: "center" },
+    deleteIconWrap: { width: 60, height: 60, borderRadius: 30, backgroundColor: "rgba(196,96,96,0.12)", alignItems: "center", justifyContent: "center", marginBottom: 16, borderWidth: 1, borderColor: "rgba(196,96,96,0.3)" },
+    deleteTitle: { fontFamily: "Inter_700Bold", fontSize: 20, color: Colors.text, marginBottom: 12, textAlign: "center" },
+    deleteBody: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3, textAlign: "center", lineHeight: 22, marginBottom: 24 },
+    deleteBodyBold: { fontFamily: "Inter_600SemiBold", color: Colors.red },
+    deleteInputLabel: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.text3, alignSelf: "flex-start", marginBottom: 8, letterSpacing: 0.5, textTransform: "uppercase" },
+    deleteInput: { width: "100%", backgroundColor: Colors.bg3, borderWidth: 1.5, borderColor: "rgba(196,96,96,0.55)", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 12, fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.red, textAlign: "center", letterSpacing: 4, marginBottom: 20 },
+    deleteConfirmBtn: { width: "100%", backgroundColor: Colors.red, borderRadius: 12, paddingVertical: 15, alignItems: "center", marginBottom: 10 },
+    deleteConfirmBtnDisabled: { opacity: 0.35 },
+    deleteConfirmText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#fff" },
+    deleteCancelBtn: { width: "100%", paddingVertical: 12, alignItems: "center" },
+    deleteCancelText: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.text3 },
+  });
