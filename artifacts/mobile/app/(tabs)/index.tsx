@@ -19,6 +19,7 @@ import { Feather } from "@expo/vector-icons";
   import Colors from "@/constants/colors";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
+  import { sendPushNotification } from "@/lib/notifications";
 
   const PAGE_SIZE = 20;
   const REPORT_REASONS = ["Spam", "Harassment or bullying", "Inappropriate content", "Other"];
@@ -61,7 +62,7 @@ import { Feather } from "@expo/vector-icons";
   const AVATAR_COLORS = ["#2a3d2a", "#2d2a3d", "#3d2a2a", "#2a3340", "#3d3020"];
 
   export default function FeedScreen() {
-    const { session } = useAuth();
+    const { session, profile } = useAuth();
     const insets = useSafeAreaInsets();
     const topPad = Platform.OS === "web" ? 67 : insets.top;
     const router = useRouter();
@@ -194,6 +195,17 @@ import { Feather } from "@expo/vector-icons";
         await supabase.from("likes").insert({ user_id: session.user.id, hike_id: hikeId });
         setLikedIds(prev => new Set([...prev, hikeId]));
         setLikeCounts(prev => ({ ...prev, [hikeId]: (prev[hikeId] || 0) + 1 }));
+        const hike = hikes.find(h => h.id === hikeId);
+        if (hike && hike.user_id !== session.user.id) {
+          sendPushNotification({
+            targetUserId: hike.user_id,
+            type: "like",
+            title: "New like",
+            body: `${profile?.full_name || "Someone"} liked your hike on ${hike.trail_name || "a trail"}`,
+            data: { hikeId },
+            hikeId,
+          });
+        }
       }
     };
 

@@ -16,6 +16,7 @@ import { Feather } from "@expo/vector-icons";
   import Colors from "@/constants/colors";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
+  import { sendPushNotification } from "@/lib/notifications";
 
   type Profile = { id: string; full_name: string | null; bio: string | null; avatar_url: string | null; };
   type Hike = { id: string; trail_name: string; location: string; distance_mi: number; elevation_ft: number; overall_score: number; difficulty: string; date: string; };
@@ -42,7 +43,7 @@ import { Feather } from "@expo/vector-icons";
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { session } = useAuth();
+    const { session, profile: myProfile } = useAuth();
 
     const [profile, setProfile] = useState<Profile | null>(null);
     const [hikes, setHikes] = useState<Hike[]>([]);
@@ -94,6 +95,13 @@ import { Feather } from "@expo/vector-icons";
         await supabase.from("follows").insert({ follower_id: session.user.id, following_id: id });
         setIsFollowing(true);
         setFollowerCount(c => c + 1);
+        sendPushNotification({
+          targetUserId: id,
+          type: "follow",
+          title: "New follower",
+          body: `${myProfile?.full_name || "Someone"} started following you`,
+          data: { userId: session.user.id },
+        });
       }
       setFollowLoading(false);
     };

@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from './AuthContext'
+import { sendPushNotification } from '@/lib/notifications'
+
+const MILESTONES: { count: number; badgeKey: string; label: string }[] = [
+  { count: 5, badgeKey: 'explorer', label: 'Explorer badge — 5 hikes logged!' },
+  { count: 10, badgeKey: 'summit', label: 'Summit badge — 10 hikes logged!' },
+]
 
 export type DimRating = { name: string; score: number }
 
@@ -114,6 +120,21 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
       )
     }
     await fetchHikes()
+
+    const { count } = await supabase
+      .from('hikes')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', session.user.id)
+    const milestone = MILESTONES.find(m => m.count === count)
+    if (milestone) {
+      sendPushNotification({
+        targetUserId: session.user.id,
+        type: 'milestone',
+        title: 'Badge earned!',
+        body: `You earned the ${milestone.label}`,
+        badgeKey: milestone.badgeKey,
+      })
+    }
   }
 
   const toggleLike = async (hikeId: string) => {

@@ -1,1 +1,2 @@
 - [Mobile app uses external Supabase, not Replit Postgres](mobile-supabase-vs-replit-db.md) — DATABASE_URL/db skill hit a different, unrelated database.
+- [Push notification delivery via existing edge function](push-notifications-send-notification-edgefn.md) — call deployed `send-notification` edge function from client, don't build a new sender.

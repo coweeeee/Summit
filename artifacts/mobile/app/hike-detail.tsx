@@ -19,6 +19,7 @@ import { Feather } from "@expo/vector-icons";
   import Colors from "@/constants/colors";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
+  import { sendPushNotification } from "@/lib/notifications";
 
   type HikeDetail = {
     id: string; trail_name: string; location: string; distance_mi: number;
@@ -60,7 +61,7 @@ import { Feather } from "@expo/vector-icons";
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { session } = useAuth();
+    const { session, profile } = useAuth();
 
     const [hike, setHike] = useState<HikeDetail | null>(null);
     const [photos, setPhotos] = useState<string[]>([]);
@@ -135,6 +136,16 @@ import { Feather } from "@expo/vector-icons";
       } else {
         await supabase.from("likes").insert({ user_id: session.user.id, hike_id: id });
         setIsLiked(true); setLikeCount(c => c + 1);
+        if (hike && hike.user_id !== session.user.id) {
+          sendPushNotification({
+            targetUserId: hike.user_id,
+            type: "like",
+            title: "New like",
+            body: `${profile?.full_name || "Someone"} liked your hike on ${hike.trail_name || "a trail"}`,
+            data: { hikeId: id },
+            hikeId: id,
+          });
+        }
       }
     };
 
@@ -146,10 +157,20 @@ import { Feather } from "@expo/vector-icons";
       }).select().single();
       setPosting(false);
       if (error || !data) return;
-      const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", session.user.id).single();
-      setComments(prev => [...prev, { ...data, userName: profile?.full_name || "Anonymous" }]);
+      const { data: commenterProfile } = await supabase.from("profiles").select("full_name").eq("id", session.user.id).single();
+      setComments(prev => [...prev, { ...data, userName: commenterProfile?.full_name || "Anonymous" }]);
       setCommentText("");
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 200);
+      if (hike && hike.user_id !== session.user.id) {
+        sendPushNotification({
+          targetUserId: hike.user_id,
+          type: "comment",
+          title: "New comment",
+          body: `${commenterProfile?.full_name || profile?.full_name || "Someone"} commented on your hike on ${hike.trail_name || "a trail"}`,
+          data: { hikeId: id },
+          hikeId: id,
+        });
+      }
     };
 
     const deleteComment = async (commentId: string) => {
