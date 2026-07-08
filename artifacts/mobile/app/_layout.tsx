@@ -32,6 +32,8 @@ import {
       shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
     }),
   });
 
@@ -72,7 +74,7 @@ import {
       const inTabs = segments[0] === "(tabs)";
       const inAuth = segments[0] === "login" || segments[0] === "signup";
       if (!session && inTabs) router.replace("/login");
-      else if (session && (inAuth || segments.length === 0)) router.replace("/(tabs)");
+      else if (session && (inAuth || segments[0] === undefined)) router.replace("/(tabs)");
     }, [session, loading, networkError, segments]);
 
     useEffect(() => {

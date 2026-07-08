@@ -12,12 +12,12 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import Colors from "@/constants/colors";
-import { HikeEntry } from "@/context/HikesContext";
+import { Hike } from "@/context/HikesContext";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 type Props = {
-  hike: HikeEntry;
+  hike: Hike & { likes?: number };
   liked: boolean;
   onLike: () => void;
   userInitials?: string;
@@ -124,7 +124,7 @@ export function TrailCard({ hike, liked, onLike, userInitials = "AL", userColor 
   const points = getElevPoints(hike.difficulty);
   const elevColor = getElevColor(hike.difficulty);
   const elevFill = getElevFill(hike.difficulty);
-  const totalLikes = hike.likes + (liked ? 1 : 0);
+  const totalLikes = (hike.likes ?? 0) + (liked ? 1 : 0);
 
   return (
     <View style={styles.card}>
