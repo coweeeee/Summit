@@ -21,7 +21,7 @@ import { Feather } from "@expo/vector-icons";
   import { useAuth } from "@/context/AuthContext";
   import RNMapView, { Marker as RNMarker, Callout as RNCallout } from "@/lib/maps";
   import { formatDistance, formatElevation } from "@/lib/units";
-  import { fetchRatingStats, formatRatingDisplay, TrailRatingStats } from "@/lib/ratings";
+  import { formatRatingDisplay } from "@/lib/ratings";
 
   const PAGE_SIZE = 20;
   const MAP_FETCH_LIMIT = 300;
@@ -36,6 +36,7 @@ import { Feather } from "@expo/vector-icons";
     distance_mi: number; elevation_ft: number; difficulty: string;
     rating: number; tags: string[]; description: string;
     lat: number | null; lng: number | null;
+    effective_rating: number; rating_count: number;
   };
 
   type UserProfile = {
@@ -170,8 +171,6 @@ import { Feather } from "@expo/vector-icons";
 
     const [trails, setTrails] = useState<Trail[]>([]);
     const [mapTrails, setMapTrails] = useState<Trail[]>([]);
-    const [ratingStats, setRatingStats] = useState<Map<string, TrailRatingStats>>(new Map());
-    const [ratingStatsFailed, setRatingStatsFailed] = useState(false);
     const [loading, setLoading] = useState(false);
     const [mapLoading, setMapLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -205,9 +204,9 @@ import { Feather } from "@expo/vector-icons";
     };
 
     const buildListQuery = (offset: number) => {
-      let q = applyBaseFilters(supabase.from("trails").select("*", { count: "exact" }));
+      let q = applyBaseFilters(supabase.from("trails_with_ratings").select("*", { count: "exact" }));
       switch (sortBy) {
-        case "Top Rated":       q = q.order("rating",       { ascending: false }); break;
+        case "Top Rated":       q = q.order("effective_rating", { ascending: false }); break;
         case "Shortest":        q = q.order("distance_mi",  { ascending: true  }); break;
         case "Longest":         q = q.order("distance_mi",  { ascending: false }); break;
         case "Most Elevation":  q = q.order("elevation_ft", { ascending: false }); break;
@@ -217,7 +216,7 @@ import { Feather } from "@expo/vector-icons";
     };
 
     const buildMapQuery = () => {
-      let q = applyBaseFilters(supabase.from("trails").select("id,name,rating,lat,lng,region,difficulty,location"));
+      let q = applyBaseFilters(supabase.from("trails_with_ratings").select("id,name,rating,effective_rating,rating_count,lat,lng,region,difficulty,location"));
       return q.not("lat", "is", null).not("lng", "is", null).range(0, MAP_FETCH_LIMIT - 1);
     };
 
@@ -229,23 +228,11 @@ import { Feather } from "@expo/vector-icons";
       return data;
     };
 
-    const mergeRatingStats = async (ids: string[]) => {
-      if (ids.length === 0) return;
-      const { map, failed } = await fetchRatingStats(ids);
-      if (failed) { setRatingStatsFailed(true); return; }
-      setRatingStats(prev => {
-        const next = new Map(prev);
-        map.forEach((v, k) => next.set(k, v));
-        return next;
-      });
-    };
-
     const fetchMapData = async () => {
       setMapLoading(true);
       const { data } = await buildMapQuery();
       setMapTrails(data || []);
       setMapLoading(false);
-      mergeRatingStats((data || []).map((t: any) => t.id));
     };
 
     const fetchSaved = async () => {
@@ -262,7 +249,6 @@ import { Feather } from "@expo/vector-icons";
       setTrails(page);
       offsetRef.current = page.length;
       setLoading(false);
-      mergeRatingStats(page.map(t => t.id));
     };
 
     const loadMore = async () => {
@@ -272,7 +258,6 @@ import { Feather } from "@expo/vector-icons";
       if (page.length > 0) {
         setTrails(prev => [...prev, ...page]);
         offsetRef.current += page.length;
-        mergeRatingStats(page.map(t => t.id));
       }
       setLoadingMore(false);
     };
@@ -285,7 +270,6 @@ import { Feather } from "@expo/vector-icons";
       setTrails(page);
       offsetRef.current = page.length;
       setRefreshing(false);
-      mergeRatingStats(page.map(t => t.id));
     }, [diffFilter, regionFilter, activeCategories, sortBy, debouncedSearch, session]);
 
     useEffect(() => {
@@ -348,7 +332,7 @@ import { Feather } from "@expo/vector-icons";
               <View style={styles.ratingRow}>
                 <Feather name="star" size={12} color={Colors.amber2} />
                 <Text style={styles.ratingText}>
-                  {formatRatingDisplay(ratingStats.get(trail.id), trail.rating, ratingStatsFailed)}
+                  {formatRatingDisplay({ avg_rating: trail.effective_rating, rating_count: trail.rating_count })}
                 </Text>
               </View>
             </View>
@@ -405,7 +389,7 @@ import { Feather } from "@expo/vector-icons";
                     <View style={styles.calloutMeta}>
                       <Feather name="star" size={11} color={Colors.amber2} />
                       <Text style={styles.calloutRating}>
-                        {formatRatingDisplay(ratingStats.get(trail.id), trail.rating, ratingStatsFailed)}
+                        {formatRatingDisplay({ avg_rating: trail.effective_rating, rating_count: trail.rating_count })}
                       </Text>
                       <Text style={styles.calloutRegion}>{trail.region}</Text>
                     </View>
