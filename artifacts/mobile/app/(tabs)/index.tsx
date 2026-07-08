@@ -73,7 +73,6 @@ import { Feather } from "@expo/vector-icons";
     const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
     const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
     const [trailBookmarkIds, setTrailBookmarkIds] = useState<Set<string>>(new Set());
-    const [savedHikeIds, setSavedHikeIds] = useState<Set<string>>(new Set());
     const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -137,12 +136,6 @@ import { Feather } from "@expo/vector-icons";
       if (data) setTrailBookmarkIds(new Set(data.map((d: any) => d.trail_id)));
     };
 
-    const fetchSavedHikes = async () => {
-      if (!session) return;
-      const { data } = await supabase.from("saved_hikes").select("hike_id").eq("user_id", session.user.id);
-      if (data) setSavedHikeIds(new Set(data.map((d: any) => d.hike_id)));
-    };
-
     const fetchBlocked = async () => {
       if (!session) return;
       const [{ data: iBlock }, { data: blockMe }] = await Promise.all([
@@ -159,7 +152,7 @@ import { Feather } from "@expo/vector-icons";
     const load = async () => {
       setLoading(true);
       offsetRef.current = 0;
-      const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks(), fetchSavedHikes(), fetchBlocked()]);
+      const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks(), fetchBlocked()]);
       setHikes(page);
       offsetRef.current = page.length;
       setLoading(false);
@@ -177,7 +170,7 @@ import { Feather } from "@expo/vector-icons";
       setRefreshing(true);
       offsetRef.current = 0;
       setHasMore(true);
-      const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks(), fetchSavedHikes(), fetchBlocked()]);
+      const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks(), fetchBlocked()]);
       setHikes(page);
       offsetRef.current = page.length;
       setRefreshing(false);
