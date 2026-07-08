@@ -283,6 +283,20 @@ export default function SettingsScreen() {
           />
         </View>
 
+        <SectionHeader title="Legal" />
+        <View style={styles.section}>
+          <SettingsRow
+            icon="shield"
+            label="Privacy Policy"
+            onPress={() => router.push("/privacy-policy")}
+          />
+          <SettingsRow
+            icon="file-text"
+            label="Terms of Service"
+            onPress={() => router.push("/terms-of-service")}
+          />
+        </View>
+
         <SectionHeader title="Danger zone" />
         <View style={styles.section}>
           <SettingsRow icon="log-out" label="Sign Out" onPress={signOut} danger />
@@ -307,9 +321,7 @@ export default function SettingsScreen() {
               </View>
               <Text style={styles.deleteTitle}>Delete your account?</Text>
               <Text style={styles.deleteBody}>
-                This will permanently delete your account, all your hikes, photos, comments, and followers.{"
-
-"}
+                This will permanently delete your account, all your hikes, photos, comments, and followers.{"\n\n"}
                 <Text style={styles.deleteBodyBold}>This cannot be undone.</Text>
               </Text>
               <Text style={styles.deleteInputLabel}>Type DELETE to confirm</Text>

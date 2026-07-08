@@ -91,6 +91,16 @@ export default function SignupScreen() {
             <Text style={styles.switchLink}>Log in</Text>
           </Text>
         </Pressable>
+
+        <View style={styles.legalLinks}>
+          <Pressable onPress={() => router.push("/privacy-policy")}>
+            <Text style={styles.legalLink}>Privacy Policy</Text>
+          </Pressable>
+          <Text style={styles.legalDivider}>{"\u00B7"}</Text>
+          <Pressable onPress={() => router.push("/terms-of-service")}>
+            <Text style={styles.legalLink}>Terms of Service</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -147,4 +157,22 @@ const styles = StyleSheet.create({
     color: Colors.text3,
   },
   switchLink: { color: Colors.accent, fontFamily: "Inter_600SemiBold" },
+  legalLinks: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 20,
+  },
+  legalLink: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.text3,
+    textDecorationLine: "underline",
+  },
+  legalDivider: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.text3,
+  },
 });

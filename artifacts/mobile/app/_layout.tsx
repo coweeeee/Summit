@@ -117,6 +117,8 @@ import {
           <Stack.Screen name="trail-detail" options={{ headerShown: false, presentation: "modal" }} />
           <Stack.Screen name="hike-detail" options={{ headerShown: false, presentation: "modal" }} />
           <Stack.Screen name="user-profile" options={{ headerShown: false }} />
+          <Stack.Screen name="privacy-policy" options={{ headerShown: false, presentation: "modal" }} />
+          <Stack.Screen name="terms-of-service" options={{ headerShown: false, presentation: "modal" }} />
         </Stack>
       </>
     );
