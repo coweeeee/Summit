@@ -1,3 +1,4 @@
+import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -23,12 +24,15 @@ export default function SignupScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+
+  const canSubmit =
+    !!fullName && !!email && password.length >= 6 && agreedToTerms;
 
   const handleSignup = async () => {
-    if (!fullName || !email || !password) return;
-    if (password.length < 6) return;
+    if (!canSubmit) return;
     setLoading(true);
-    const ok = await signUp(email.trim(), password, fullName.trim());
+    const ok = await signUp(email.trim(), password, fullName.trim(), agreedToTerms);
     setLoading(false);
     if (ok) router.replace("/(tabs)");
   };
@@ -75,9 +79,33 @@ export default function SignupScreen() {
         />
 
         <Pressable
-          style={({ pressed }) => [styles.btn, { opacity: pressed || loading ? 0.8 : 1 }]}
+          style={styles.checkboxRow}
+          onPress={() => setAgreedToTerms((prev) => !prev)}
+          hitSlop={8}
+        >
+          <View style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}>
+            {agreedToTerms && <Feather name="check" size={14} color="#fff" />}
+          </View>
+          <Text style={styles.checkboxLabel}>
+            I agree to the{" "}
+            <Text style={styles.checkboxLink} onPress={() => router.push("/privacy-policy")}>
+              Privacy Policy
+            </Text>{" "}
+            and{" "}
+            <Text style={styles.checkboxLink} onPress={() => router.push("/terms-of-service")}>
+              Terms of Service
+            </Text>
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.btn,
+            { opacity: pressed || loading ? 0.8 : 1 },
+            !canSubmit && styles.btnDisabled,
+          ]}
           onPress={handleSignup}
-          disabled={loading}
+          disabled={loading || !canSubmit}
         >
           {loading
             ? <ActivityIndicator color="#fff" />
@@ -142,12 +170,47 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.text,
   },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginTop: 24,
+    gap: 10,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: Colors.border2,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  checkboxChecked: {
+    backgroundColor: Colors.green2,
+    borderColor: Colors.green2,
+  },
+  checkboxLabel: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    lineHeight: 19,
+    color: Colors.text3,
+  },
+  checkboxLink: {
+    color: Colors.accent,
+    fontFamily: "Inter_500Medium",
+    textDecorationLine: "underline",
+  },
   btn: {
     backgroundColor: Colors.green2,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: "center",
-    marginTop: 28,
+    marginTop: 20,
+  },
+  btnDisabled: {
+    backgroundColor: Colors.border2,
   },
   btnText: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: "#fff" },
   switchBtn: { alignItems: "center", marginTop: 24 },

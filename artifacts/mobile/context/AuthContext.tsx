@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
   import { Session } from '@supabase/supabase-js'
   import { Alert } from 'react-native'
   import { supabase } from '@/lib/supabase'
+  import { LEGAL_TERMS_VERSION } from '@/constants/legal'
 
   export type Profile = {
     id: string
@@ -16,7 +17,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     loading: boolean
     networkError: boolean
     signIn: (email: string, password: string) => Promise<boolean>
-    signUp: (email: string, password: string, fullName: string) => Promise<boolean>
+    signUp: (email: string, password: string, fullName: string, termsAccepted: boolean) => Promise<boolean>
     signOut: () => Promise<void>
     refreshProfile: () => Promise<void>
     retryAuth: () => void
@@ -95,10 +96,24 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
       }
     }
 
-    const signUp = async (email: string, password: string, fullName: string): Promise<boolean> => {
+    const signUp = async (email: string, password: string, fullName: string, termsAccepted: boolean): Promise<boolean> => {
+      if (!termsAccepted) {
+        Alert.alert('Sign up failed', 'You must accept the Privacy Policy and Terms of Service to create an account.')
+        return false
+      }
       try {
         const { error } = await withTimeout(
-          supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } }),
+          supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              data: {
+                full_name: fullName,
+                terms_accepted_at: new Date().toISOString(),
+                terms_version: LEGAL_TERMS_VERSION,
+              },
+            },
+          }),
           15_000
         )
         if (error) { Alert.alert('Sign up failed', error.message); return false }
