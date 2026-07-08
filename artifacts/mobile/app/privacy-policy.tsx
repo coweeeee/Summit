@@ -57,10 +57,10 @@ export default function PrivacyPolicyScreen() {
           items={[
             "Account information: your name, email address, username, and password.",
             "Profile information: profile photo, bio, and unit preferences.",
-            "Activity data: hikes, trails, routes, distance, elevation, duration, and GPS location logged during recorded hikes.",
+            "Activity data: hikes, trails, distance, elevation, duration, difficulty, and ratings you log or select within the app.",
             "Content you create: photos, comments, likes, and posts shared within the app.",
-            "Device information: device type, operating system, and app version for troubleshooting.",
-            "Usage data: how you interact with the app, including pages viewed and features used.",
+            "Device information: device type, operating system, and app version, used for troubleshooting.",
+            "Basic technical logs generated when you use the app, used to maintain and improve service reliability.",
           ]}
         />
 
@@ -80,11 +80,13 @@ export default function PrivacyPolicyScreen() {
 
         <SectionTitle>3. Location Data</SectionTitle>
         <Paragraph>
-          Summit uses location services to record your hikes, calculate distance and elevation,
-          and plot your route on a map. Location data collected during a hike is stored as part
-          of your hike history and is only shared with other users if you choose to make that
-          hike visible to them. You can disable location permissions at any time through your
-          device settings, though this will limit the app's ability to track hikes.
+          Summit uses location services to help you find nearby trails, display trail maps, and
+          fetch local weather conditions. Summit does not track your live GPS location while you
+          are hiking. Trail locations and any hike details you log or select (such as distance
+          and elevation) are stored as part of your hike history and are only shared with other
+          users if you choose to make that hike visible to them. You can disable location
+          permissions at any time through your device settings, though this will limit the app's
+          ability to help you find and display trails near you.
         </Paragraph>
 
         <SectionTitle>4. Sharing Your Information</SectionTitle>
@@ -92,7 +94,8 @@ export default function PrivacyPolicyScreen() {
         <BulletList
           items={[
             "Other users, limited to content and profile details you choose to make public (e.g. profile visibility settings).",
-            "Service providers who help us operate the app, such as hosting and analytics providers, under confidentiality obligations.",
+            "Service providers who help us operate the app, such as our hosting, database, and storage provider, under confidentiality obligations.",
+            "Third-party map and weather providers, which receive trail coordinates needed to display maps and forecasts, but not your personal account information.",
             "Authorities, if required by law, to protect our rights, or to prevent fraud or harm.",
           ]}
         />
