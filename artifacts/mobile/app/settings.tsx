@@ -136,6 +136,8 @@ export default function SettingsScreen() {
       if (error) {
         setUnits(units);
         Alert.alert("Error", "Could not save unit preference. Please try again.");
+      } else {
+        await refreshProfile();
       }
     }
   };
@@ -148,6 +150,8 @@ export default function SettingsScreen() {
       if (error) {
         setNotifLikes(previous);
         Alert.alert("Error", "Could not save notification preference. Please try again.");
+      } else {
+        await refreshProfile();
       }
     }
   };
@@ -160,6 +164,8 @@ export default function SettingsScreen() {
       if (error) {
         setNotifFollows(previous);
         Alert.alert("Error", "Could not save notification preference. Please try again.");
+      } else {
+        await refreshProfile();
       }
     }
   };
@@ -172,6 +178,8 @@ export default function SettingsScreen() {
       if (error) {
         setNotifMilestones(previous);
         Alert.alert("Error", "Could not save notification preference. Please try again.");
+      } else {
+        await refreshProfile();
       }
     }
   };
@@ -184,6 +192,8 @@ export default function SettingsScreen() {
       if (error) {
         setNotifComments(previous);
         Alert.alert("Error", "Could not save notification preference. Please try again.");
+      } else {
+        await refreshProfile();
       }
     }
   };
