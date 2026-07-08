@@ -96,6 +96,8 @@ import {
     }, [session?.user.id]);
 
     useEffect(() => {
+      if (Platform.OS === "web") return;
+
       const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
         const data = response.notification.request.content.data as Record<string, any> | undefined;
         handleNotificationResponse(router, data);
