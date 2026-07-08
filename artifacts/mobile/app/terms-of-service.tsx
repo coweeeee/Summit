@@ -142,6 +142,13 @@ export default function TermsOfServiceScreen() {
           If you have any questions about these Terms, please contact us at
           support@summitapp.com.
         </Paragraph>
+
+        <Paragraph style={styles.approvalNote}>
+          Reviewed and approved by the app owner (final decision-maker) on July 8, 2026. These
+          Terms have not been reviewed by a licensed attorney; provisions such as arbitration,
+          dispute resolution, and governing law should be revisited with legal counsel before
+          expanding to new markets.
+        </Paragraph>
       </ScrollView>
     </View>
   );
@@ -194,5 +201,12 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     color: Colors.text2,
     flex: 1,
+  },
+  approvalNote: {
+    marginTop: 24,
+    fontStyle: "italic",
+    color: Colors.text3,
+    fontSize: 12,
+    lineHeight: 18,
   },
 });

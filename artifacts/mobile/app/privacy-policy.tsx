@@ -145,6 +145,13 @@ export default function PrivacyPolicyScreen() {
           If you have questions or concerns about this Privacy Policy or our data practices,
           please contact us at privacy@summitapp.com.
         </Paragraph>
+
+        <Paragraph style={styles.approvalNote}>
+          Reviewed and approved by the app owner (final decision-maker) on July 8, 2026. This
+          policy has not been reviewed by a licensed attorney; jurisdiction-specific requirements
+          (e.g. GDPR/CCPA formal request handling) should be revisited with legal counsel before
+          expanding to new markets or adding new data collection.
+        </Paragraph>
       </ScrollView>
     </View>
   );
@@ -197,5 +204,12 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     color: Colors.text2,
     flex: 1,
+  },
+  approvalNote: {
+    marginTop: 24,
+    fontStyle: "italic",
+    color: Colors.text3,
+    fontSize: 12,
+    lineHeight: 18,
   },
 });
