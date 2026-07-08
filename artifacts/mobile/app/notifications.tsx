@@ -51,13 +51,27 @@ export default function NotificationsScreen() {
 
     const results: Notif[] = [];
 
+    // Fetch the latest notification preferences directly so toggles made in
+    // Settings are respected immediately, even if the cached profile in
+    // AuthContext hasn't been refreshed yet.
+    const { data: prefs } = await supabase
+      .from("profiles")
+      .select("notif_likes, notif_follows, notif_milestones, notif_comments")
+      .eq("id", session.user.id)
+      .single();
+
+    const notifLikes = prefs?.notif_likes ?? profile?.notif_likes ?? true;
+    const notifFollows = prefs?.notif_follows ?? profile?.notif_follows ?? true;
+    const notifMilestones = prefs?.notif_milestones ?? profile?.notif_milestones ?? true;
+    const notifComments = prefs?.notif_comments ?? profile?.notif_comments ?? true;
+
     // 1. Likes on my hikes
     const { data: myHikes } = await supabase
       .from("hikes")
       .select("id, trail_name")
       .eq("user_id", session.user.id);
 
-    if (myHikes && myHikes.length > 0) {
+    if (notifLikes && myHikes && myHikes.length > 0) {
       const hikeIds = myHikes.map((h: any) => h.id);
       const { data: likes } = await supabase
         .from("likes")
@@ -90,7 +104,7 @@ export default function NotificationsScreen() {
       .order("created_at", { ascending: false })
       .limit(10);
 
-    if (followers) {
+    if (notifFollows && followers) {
       followers.forEach((f: any) => {
         const name = f.profiles?.full_name || "Someone";
         results.push({
@@ -104,7 +118,7 @@ export default function NotificationsScreen() {
     }
 
     // 3. Comments on my hikes
-    if (myHikes && myHikes.length > 0) {
+    if (notifComments && myHikes && myHikes.length > 0) {
       const hikeIds = myHikes.map((h: any) => h.id);
       const { data: comments } = await supabase
         .from("comments")
@@ -130,7 +144,7 @@ export default function NotificationsScreen() {
     }
 
     // 4. Badge milestones based on hike count
-    if (myHikes) {
+    if (notifMilestones && myHikes) {
       if (myHikes.length >= 10) {
         results.push({
           id: "badge-summit",
