@@ -20,6 +20,7 @@ import { Feather } from "@expo/vector-icons";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
   import { sendPushNotification } from "@/lib/notifications";
+  import { formatDistance, formatElevation } from "@/lib/units";
 
   const PAGE_SIZE = 20;
   const REPORT_REASONS = ["Spam", "Harassment or bullying", "Inappropriate content", "Other"];
@@ -63,6 +64,7 @@ import { Feather } from "@expo/vector-icons";
 
   export default function FeedScreen() {
     const { session, profile } = useAuth();
+    const distanceUnit = profile?.distance_unit ?? "imperial";
     const insets = useSafeAreaInsets();
     const topPad = Platform.OS === "web" ? 67 : insets.top;
     const router = useRouter();
@@ -286,8 +288,8 @@ import { Feather } from "@expo/vector-icons";
             </View>
             {hike.location ? <Text style={styles.location}>{hike.location}</Text> : null}
             <View style={styles.statsRow}>
-              {hike.distance_mi > 0 && <View style={styles.stat}><Text style={styles.statVal}>{hike.distance_mi.toFixed(1)} mi</Text><Text style={styles.statLbl}>Distance</Text></View>}
-              {hike.elevation_ft > 0 && <View style={styles.stat}><Text style={styles.statVal}>{hike.elevation_ft.toLocaleString()} ft</Text><Text style={styles.statLbl}>Elevation</Text></View>}
+              {hike.distance_mi > 0 && <View style={styles.stat}><Text style={styles.statVal}>{formatDistance(hike.distance_mi, distanceUnit)}</Text><Text style={styles.statLbl}>Distance</Text></View>}
+              {hike.elevation_ft > 0 && <View style={styles.stat}><Text style={styles.statVal}>{formatElevation(hike.elevation_ft, distanceUnit)}</Text><Text style={styles.statLbl}>Elevation</Text></View>}
               {hike.duration_hr != null && hike.duration_hr > 0 && <View style={styles.stat}><Text style={styles.statVal}>{hike.duration_hr.toFixed(1)} hr</Text><Text style={styles.statLbl}>Duration</Text></View>}
             </View>
             {hike.dim_ratings && hike.dim_ratings.length > 0 && (

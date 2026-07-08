@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { formatDistance, formatElevation } from "@/lib/units";
 
 const isExpoGo = Constants.appOwnership === "expo";
 
@@ -102,7 +103,8 @@ export default function TrailDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
+  const distanceUnit = profile?.distance_unit ?? "imperial";
 
   const [trail, setTrail] = useState<Trail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -203,8 +205,8 @@ export default function TrailDetailScreen() {
 
         {/* Stats */}
         <View style={styles.statsGrid}>
-          <View style={styles.statBox}><Feather name="navigation" size={18} color={Colors.accent} /><Text style={styles.statVal}>{trail.distance_mi} mi</Text><Text style={styles.statLbl}>Distance</Text></View>
-          <View style={[styles.statBox, styles.statBoxBorder]}><Feather name="trending-up" size={18} color={Colors.accent} /><Text style={styles.statVal}>{trail.elevation_ft.toLocaleString()} ft</Text><Text style={styles.statLbl}>Elevation</Text></View>
+          <View style={styles.statBox}><Feather name="navigation" size={18} color={Colors.accent} /><Text style={styles.statVal}>{formatDistance(trail.distance_mi, distanceUnit)}</Text><Text style={styles.statLbl}>Distance</Text></View>
+          <View style={[styles.statBox, styles.statBoxBorder]}><Feather name="trending-up" size={18} color={Colors.accent} /><Text style={styles.statVal}>{formatElevation(trail.elevation_ft, distanceUnit)}</Text><Text style={styles.statLbl}>Elevation</Text></View>
           <View style={styles.statBox}><Feather name="activity" size={18} color={ds.color} /><Text style={[styles.statVal, { color: ds.color }]}>{trail.difficulty}</Text><Text style={styles.statLbl}>Difficulty</Text></View>
         </View>
 

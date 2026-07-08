@@ -20,6 +20,7 @@ import { Feather } from "@expo/vector-icons";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
   import { sendPushNotification } from "@/lib/notifications";
+  import { formatDistance, formatElevation } from "@/lib/units";
 
   type HikeDetail = {
     id: string; trail_name: string; location: string; distance_mi: number;
@@ -62,6 +63,7 @@ import { Feather } from "@expo/vector-icons";
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { session, profile } = useAuth();
+    const distanceUnit = profile?.distance_unit ?? "imperial";
 
     const [hike, setHike] = useState<HikeDetail | null>(null);
     const [photos, setPhotos] = useState<string[]>([]);
@@ -248,9 +250,9 @@ import { Feather } from "@expo/vector-icons";
           </View>
 
           <View style={styles.statsGrid}>
-            {hike.distance_mi > 0 && <View style={styles.statBox}><Feather name="navigation" size={16} color={Colors.accent} /><Text style={styles.statVal}>{hike.distance_mi.toFixed(1)} mi</Text><Text style={styles.statLbl}>Distance</Text></View>}
-            {hike.elevation_ft > 0 && <View style={[styles.statBox, styles.statBorder]}><Feather name="trending-up" size={16} color={Colors.accent} /><Text style={styles.statVal}>{hike.elevation_ft.toLocaleString()} ft</Text><Text style={styles.statLbl}>Elevation</Text></View>}
-            {hike.duration_hr != null && hike.duration_hr > 0 && <View style={[styles.statBox, styles.statBorder]}><Feather name="clock" size={16} color={Colors.accent} /><Text style={styles.statVal}>{hike.duration_hr.toFixed(1)} hr</Text><Text style={styles.statLbl}>Duration</Text></View>}
+            {hike.distance_mi > 0 && <View style={styles.statBox}><Feather name="navigation" size={16} color={Colors.accent} /><Text style={styles.statVal}>{formatDistance(hike.distance_mi, distanceUnit)}</Text><Text style={styles.statLbl}>Distance</Text></View>}
+            {hike.elevation_ft > 0 && <View style={[styles.statBox, styles.statBorder]}><Feather name="trending-up" size={16} color={Colors.accent} /><Text style={styles.statVal}>{formatElevation(hike.elevation_ft, distanceUnit)}</Text><Text style={styles.statLbl}>Elevation</Text></View>}
+            {hike.duration_hr != null && <View style={[styles.statBox, styles.statBorder]}><Feather name="clock" size={16} color={Colors.accent} /><Text style={styles.statVal}>{hike.duration_hr.toFixed(1)} hr</Text><Text style={styles.statLbl}>Duration</Text></View>}
             {hike.overall_score > 0 && <View style={[styles.statBox, hike.duration_hr ? styles.statBorder : {}]}><Feather name="star" size={16} color={Colors.amber2} /><Text style={[styles.statVal, { color: Colors.amber2 }]}>{hike.overall_score.toFixed(1)}</Text><Text style={styles.statLbl}>Score</Text></View>}
           </View>
 

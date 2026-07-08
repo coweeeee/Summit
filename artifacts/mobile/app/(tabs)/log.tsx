@@ -22,6 +22,7 @@ import Colors from "@/constants/colors";
 import { useHikes, DimRating } from "@/context/HikesContext";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { formatDistance, formatElevation } from "@/lib/units";
 
 const DIFFICULTIES = ["Easy", "Moderate", "Hard", "Expert"];
 const DIMENSIONS = ["Scenery", "Views", "Trail Cond.", "Crowds", "Accessibility"];
@@ -76,7 +77,8 @@ function formatDate(d: Date): string { return d.toLocaleDateString("en-US", { mo
 
 export default function LogScreen() {
   const { addHike } = useHikes();
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
+  const distanceUnit = profile?.distance_unit ?? "imperial";
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const params = useLocalSearchParams<{ prefillName?: string; prefillLocation?: string }>();
@@ -232,8 +234,8 @@ export default function LogScreen() {
               <Text style={styles.selectedTrailName}>{selectedTrail.name}</Text>
               <Text style={styles.selectedTrailLocation}>{selectedTrail.location}</Text>
               <View style={styles.selectedTrailStats}>
-                {selectedTrail.distance_mi > 0 && <Text style={styles.selectedTrailStat}>{selectedTrail.distance_mi} mi</Text>}
-                {selectedTrail.elevation_ft > 0 && <Text style={styles.selectedTrailStat}>{selectedTrail.elevation_ft.toLocaleString()} ft</Text>}
+                {selectedTrail.distance_mi > 0 && <Text style={styles.selectedTrailStat}>{formatDistance(selectedTrail.distance_mi, distanceUnit)}</Text>}
+                {selectedTrail.elevation_ft > 0 && <Text style={styles.selectedTrailStat}>{formatElevation(selectedTrail.elevation_ft, distanceUnit)}</Text>}
                 <View style={[styles.diffChipSmall, { borderColor: getDiffColor(selectedTrail.difficulty) + "55", backgroundColor: getDiffColor(selectedTrail.difficulty) + "18" }]}>
                   <Text style={[styles.diffChipSmallText, { color: getDiffColor(selectedTrail.difficulty) }]}>{selectedTrail.difficulty}</Text>
                 </View>
@@ -369,8 +371,8 @@ export default function LogScreen() {
                       <Text style={styles.resultName}>{trail.name}</Text>
                       <Text style={styles.resultLocation}>{trail.location}</Text>
                       <View style={styles.resultStats}>
-                        {trail.distance_mi > 0 && <Text style={styles.resultStat}>{trail.distance_mi} mi</Text>}
-                        {trail.elevation_ft > 0 && <Text style={styles.resultStat}>{trail.elevation_ft.toLocaleString()} ft</Text>}
+                        {trail.distance_mi > 0 && <Text style={styles.resultStat}>{formatDistance(trail.distance_mi, distanceUnit)}</Text>}
+                        {trail.elevation_ft > 0 && <Text style={styles.resultStat}>{formatElevation(trail.elevation_ft, distanceUnit)}</Text>}
                         <View style={[styles.resultDiff, { borderColor: dc + "55", backgroundColor: dc + "18" }]}>
                           <Text style={[styles.resultDiffText, { color: dc }]}>{trail.difficulty}</Text>
                         </View>

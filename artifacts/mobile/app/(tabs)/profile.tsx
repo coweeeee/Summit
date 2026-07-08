@@ -20,6 +20,7 @@ import { Feather } from "@expo/vector-icons";
   import { useHikes } from "@/context/HikesContext";
   import { supabase } from "@/lib/supabase";
   import { BADGE_DEFINITIONS } from "@/lib/badges";
+  import { formatDistance, formatElevation } from "@/lib/units";
 
   type SavedTrail = { id: string; name: string; location: string; difficulty: string; rating: number; distance_mi: number; elevation_ft: number; };
   type FollowUser = { id: string; full_name: string | null; avatar_url: string | null; };
@@ -61,6 +62,7 @@ import { Feather } from "@expo/vector-icons";
 
   export default function ProfileScreen() {
     const { profile, signOut } = useAuth();
+    const distanceUnit = profile?.distance_unit ?? "imperial";
     const { hikes, refresh, loading: hikesLoading } = useHikes();
     const insets = useSafeAreaInsets();
     const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -128,8 +130,8 @@ import { Feather } from "@expo/vector-icons";
       setSavedTrails(prev => prev.filter(t => t.id !== trailId));
     };
 
-    const formatElev = (ft: number) => ft >= 1000 ? `${(ft / 1000).toFixed(1)}k` : ft.toString();
     const avatarUrl = profile?.avatar_url;
+    const elevLabel = distanceUnit === "metric" ? "Elev. m" : "Elev. ft";
 
     return (
       <View style={styles.container}>
@@ -163,8 +165,8 @@ import { Feather } from "@expo/vector-icons";
 
             <View style={styles.statsRow}>
               <StatCell value={hikes.length.toString()} label="Hikes" />
-              <StatCell value={totalMiles.toFixed(0)} label="Miles" />
-              <StatCell value={formatElev(totalElev)} label="Elev. ft" />
+              <StatCell value={formatDistance(totalMiles, distanceUnit).replace(/ (mi|km)$/, "")} label={distanceUnit === "metric" ? "Km" : "Miles"} />
+              <StatCell value={formatElevation(totalElev, distanceUnit).replace(/ (ft|m)$/, "")} label={elevLabel} />
               <StatCell value={followingCount.toString()} label="Following" onPress={() => openFollowModal("following")} />
               <StatCell value={followerCount.toString()} label="Followers" onPress={() => openFollowModal("followers")} />
             </View>
@@ -215,7 +217,7 @@ import { Feather } from "@expo/vector-icons";
                   <View style={styles.hikeIcon}><Feather name="trending-up" size={18} color={Colors.green} /></View>
                   <View style={styles.hikeInfo}>
                     <Text style={styles.hikeName} numberOfLines={1}>{hike.trailName}</Text>
-                    <Text style={styles.hikeMeta}>{hike.distanceMi.toFixed(1)} mi · {hike.elevationFt.toLocaleString()} ft · {formatDateShort(hike.date)}</Text>
+                    <Text style={styles.hikeMeta}>{formatDistance(hike.distanceMi, distanceUnit)} · {formatElevation(hike.elevationFt, distanceUnit)} · {formatDateShort(hike.date)}</Text>
                   </View>
                   {hike.overallScore > 0 && (
                     <View style={styles.hikeRating}>
@@ -260,8 +262,8 @@ import { Feather } from "@expo/vector-icons";
                           <View style={[styles.savedDiffBadge, { borderColor: dc + "55", backgroundColor: dc + "18" }]}>
                             <Text style={[styles.savedDiffText, { color: dc }]}>{trail.difficulty}</Text>
                           </View>
-                          <Text style={styles.savedStatText}>{trail.distance_mi} mi</Text>
-                          <Text style={styles.savedStatText}>{trail.elevation_ft?.toLocaleString()} ft</Text>
+                          <Text style={styles.savedStatText}>{formatDistance(trail.distance_mi, distanceUnit)}</Text>
+                          <Text style={styles.savedStatText}>{formatElevation(trail.elevation_ft, distanceUnit)}</Text>
                         </View>
                       </View>
                       <Feather name="chevron-right" size={16} color={Colors.text3} />
@@ -304,7 +306,7 @@ import { Feather } from "@expo/vector-icons";
                     {selectedBadge.key === "explorer"    && !unlocked && <Text style={styles.badgeProgress}>{hikes.length} / 5 hikes</Text>}
                     {selectedBadge.key === "summit"      && !unlocked && <Text style={styles.badgeProgress}>{hikes.length} / 10 hikes</Text>}
                     {selectedBadge.key === "trailblazer" && !unlocked && <Text style={styles.badgeProgress}>{hikes.length} / 25 hikes</Text>}
-                    {selectedBadge.key === "climber"     && !unlocked && <Text style={styles.badgeProgress}>{totalElev.toLocaleString()} / 5,000 ft elevation</Text>}
+                    {selectedBadge.key === "climber"     && !unlocked && <Text style={styles.badgeProgress}>{formatElevation(totalElev, distanceUnit)} / {formatElevation(5000, distanceUnit)} elevation</Text>}
                   </>
                 );
               })()}

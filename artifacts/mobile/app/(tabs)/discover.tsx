@@ -20,6 +20,7 @@ import { Feather } from "@expo/vector-icons";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
   import RNMapView, { Marker as RNMarker, Callout as RNCallout } from "@/lib/maps";
+  import { formatDistance, formatElevation } from "@/lib/units";
 
   const PAGE_SIZE = 20;
   const MAP_FETCH_LIMIT = 300;
@@ -149,7 +150,8 @@ import { Feather } from "@expo/vector-icons";
     const insets = useSafeAreaInsets();
     const topPad = Platform.OS === "web" ? 67 : insets.top;
     const router = useRouter();
-    const { session } = useAuth();
+    const { session, profile } = useAuth();
+    const distanceUnit = profile?.distance_unit ?? "imperial";
 
     const [activeTab, setActiveTab] = useState<"trails" | "people">("trails");
     const [viewMode, setViewMode] = useState<"list" | "map">("list");
@@ -333,8 +335,8 @@ import { Feather } from "@expo/vector-icons";
             <Text style={styles.cardLocation}>{trail.location}</Text>
             {trail.description ? <Text style={styles.cardDesc} numberOfLines={2}>{trail.description}</Text> : null}
             <View style={styles.cardStats}>
-              <View style={styles.stat}><Text style={styles.statVal}>{trail.distance_mi} mi</Text><Text style={styles.statLbl}>Distance</Text></View>
-              <View style={styles.stat}><Text style={styles.statVal}>{trail.elevation_ft?.toLocaleString()} ft</Text><Text style={styles.statLbl}>Elevation</Text></View>
+              <View style={styles.stat}><Text style={styles.statVal}>{formatDistance(trail.distance_mi, distanceUnit)}</Text><Text style={styles.statLbl}>Distance</Text></View>
+              <View style={styles.stat}><Text style={styles.statVal}>{formatElevation(trail.elevation_ft, distanceUnit)}</Text><Text style={styles.statLbl}>Elevation</Text></View>
             </View>
             {trail.tags && trail.tags.length > 0 && (
               <View style={styles.tagsRow}>
