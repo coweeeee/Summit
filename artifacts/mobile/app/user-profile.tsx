@@ -17,6 +17,7 @@ import { Feather } from "@expo/vector-icons";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
   import { sendPushNotification } from "@/lib/notifications";
+  import { formatDistance, formatElevation } from "@/lib/units";
 
   type Profile = { id: string; full_name: string | null; bio: string | null; avatar_url: string | null; };
   type Hike = { id: string; trail_name: string; location: string; distance_mi: number; elevation_ft: number; overall_score: number; difficulty: string; date: string; };
@@ -44,6 +45,7 @@ import { Feather } from "@expo/vector-icons";
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { session, profile: myProfile } = useAuth();
+    const distanceUnit = myProfile?.distance_unit ?? "imperial";
 
     const [profile, setProfile] = useState<Profile | null>(null);
     const [hikes, setHikes] = useState<Hike[]>([]);
@@ -233,7 +235,7 @@ import { Feather } from "@expo/vector-icons";
                   <View style={styles.hikeIcon}><Feather name="trending-up" size={16} color={Colors.green} /></View>
                   <View style={styles.hikeInfo}>
                     <Text style={styles.hikeName} numberOfLines={1}>{hike.trail_name}</Text>
-                    <Text style={styles.hikeMeta}>{hike.distance_mi?.toFixed(1)} mi · {hike.elevation_ft?.toLocaleString()} ft · {formatDate(hike.date)}</Text>
+                    <Text style={styles.hikeMeta}>{formatDistance(hike.distance_mi, distanceUnit)} · {formatElevation(hike.elevation_ft, distanceUnit)} · {formatDate(hike.date)}</Text>
                   </View>
                   <View style={styles.hikeRight}>
                     {hike.overall_score > 0 && (
