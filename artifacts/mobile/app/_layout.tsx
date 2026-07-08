@@ -63,6 +63,20 @@ import {
     }
   }
 
+  function handleNotificationResponse(
+    router: ReturnType<typeof useRouter>,
+    data: Record<string, any> | undefined
+  ) {
+    if (!data) return;
+    if (data.hikeId) {
+      router.push({ pathname: "/hike-detail", params: { id: String(data.hikeId) } });
+    } else if (data.userId) {
+      router.push({ pathname: "/user-profile", params: { id: String(data.userId) } });
+    } else if (data.badgeKey) {
+      router.push("/(tabs)/profile");
+    }
+  }
+
   function AuthGate() {
     const { session, loading, networkError, retryAuth } = useAuth();
     const segments = useSegments();
@@ -80,6 +94,19 @@ import {
     useEffect(() => {
       if (session?.user.id) registerForPushNotifications(session.user.id);
     }, [session?.user.id]);
+
+    useEffect(() => {
+      const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+        const data = response.notification.request.content.data as Record<string, any> | undefined;
+        handleNotificationResponse(router, data);
+      });
+      Notifications.getLastNotificationResponseAsync().then((response) => {
+        if (!response) return;
+        const data = response.notification.request.content.data as Record<string, any> | undefined;
+        handleNotificationResponse(router, data);
+      });
+      return () => subscription.remove();
+    }, [router]);
 
     if (networkError) {
       return (
@@ -116,6 +143,7 @@ import {
           <Stack.Screen name="signup" options={{ headerShown: false }} />
           <Stack.Screen name="notifications" options={{ headerShown: false, presentation: "modal" }} />
           <Stack.Screen name="settings" options={{ headerShown: false, presentation: "modal" }} />
+          <Stack.Screen name="blocked-users" options={{ headerShown: false }} />
           <Stack.Screen name="trail-detail" options={{ headerShown: false, presentation: "modal" }} />
           <Stack.Screen name="hike-detail" options={{ headerShown: false, presentation: "modal" }} />
           <Stack.Screen name="user-profile" options={{ headerShown: false }} />

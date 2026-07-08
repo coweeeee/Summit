@@ -353,6 +353,7 @@ export default function SettingsScreen() {
             value="Public"
             onPress={() => Alert.alert("Profile visibility", "Your profile is public and visible to all Summit users.")}
           />
+          <SettingsRow icon="slash" label="Blocked Accounts" onPress={() => router.push("/blocked-users")} />
         </View>
 
         <SectionHeader title="About" />

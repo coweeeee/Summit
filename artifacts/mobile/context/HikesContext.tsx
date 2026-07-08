@@ -2,11 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from './AuthContext'
 import { sendPushNotification } from '@/lib/notifications'
-
-const MILESTONES: { count: number; badgeKey: string; label: string }[] = [
-  { count: 5, badgeKey: 'explorer', label: 'Explorer badge — 5 hikes logged!' },
-  { count: 10, badgeKey: 'summit', label: 'Summit badge — 10 hikes logged!' },
-]
+import { BADGE_DEFINITIONS } from '@/lib/badges'
 
 export type DimRating = { name: string; score: number }
 
@@ -94,6 +90,8 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
 
   const addHike = async (hike: Omit<Hike, 'id'> & { trailId?: string }) => {
     if (!session) return
+    const prevCount = hikes.length
+    const prevElevFt = hikes.reduce((s, h) => s + h.elevationFt, 0)
     const { data: hikeData, error } = await supabase
       .from('hikes')
       .insert({
@@ -125,16 +123,22 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
       .from('hikes')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', session.user.id)
-    const milestone = MILESTONES.find(m => m.count === count)
-    if (milestone) {
-      sendPushNotification({
-        targetUserId: session.user.id,
-        type: 'milestone',
-        title: 'Badge earned!',
-        body: `You earned the ${milestone.label}`,
-        badgeKey: milestone.badgeKey,
-      })
-    }
+    const newCount = count ?? prevCount + 1
+    const newElevFt = prevElevFt + (hike.elevationFt || 0)
+
+    BADGE_DEFINITIONS.forEach(badge => {
+      const wasUnlocked = badge.check(prevCount, prevElevFt)
+      const isUnlocked = badge.check(newCount, newElevFt)
+      if (!wasUnlocked && isUnlocked) {
+        sendPushNotification({
+          targetUserId: session.user.id,
+          type: 'milestone',
+          title: 'Badge earned!',
+          body: `You earned the ${badge.label}`,
+          badgeKey: badge.key,
+        })
+      }
+    })
   }
 
   const toggleLike = async (hikeId: string) => {

@@ -19,16 +19,18 @@ import { Feather } from "@expo/vector-icons";
   import { useAuth } from "@/context/AuthContext";
   import { useHikes } from "@/context/HikesContext";
   import { supabase } from "@/lib/supabase";
+  import { BADGE_DEFINITIONS } from "@/lib/badges";
 
   type SavedTrail = { id: string; name: string; location: string; difficulty: string; rating: number; distance_mi: number; elevation_ft: number; };
   type FollowUser = { id: string; full_name: string | null; avatar_url: string | null; };
-  type BlockedUser = { id: string; full_name: string | null; avatar_url: string | null; blockRowId?: string; };
+
+  const badgeCheck = (key: string) => BADGE_DEFINITIONS.find(b => b.key === key)!.check;
 
   const BADGES = [
-    { key: "climber",     icon: "trending-up" as const, label: "Climber",     color: Colors.green,  desc: "Gain 5,000+ ft elevation total", check: (_h: number, elev: number) => elev >= 5000 },
-    { key: "explorer",   icon: "map"         as const, label: "Explorer",    color: Colors.sky,    desc: "Log 5 hikes",  check: (h: number) => h >= 5 },
-    { key: "summit",     icon: "award"       as const, label: "Summit",      color: Colors.amber,  desc: "Log 10 hikes", check: (h: number) => h >= 10 },
-    { key: "trailblazer",icon: "zap"         as const, label: "Trailblazer", color: "#a89fd4",     desc: "Log 25 hikes", check: (h: number) => h >= 25 },
+    { key: "climber",     icon: "trending-up" as const, label: "Climber",     color: Colors.green,  desc: "Gain 5,000+ ft elevation total", check: badgeCheck("climber") },
+    { key: "explorer",   icon: "map"         as const, label: "Explorer",    color: Colors.sky,    desc: "Log 5 hikes",  check: badgeCheck("explorer") },
+    { key: "summit",     icon: "award"       as const, label: "Summit",      color: Colors.amber,  desc: "Log 10 hikes", check: badgeCheck("summit") },
+    { key: "trailblazer",icon: "zap"         as const, label: "Trailblazer", color: "#a89fd4",     desc: "Log 25 hikes", check: badgeCheck("trailblazer") },
     { key: "earlybird",  icon: "sun"         as const, label: "Early Bird",  color: Colors.amber2, desc: "Coming soon",  check: () => false },
   ];
 
@@ -64,7 +66,7 @@ import { Feather } from "@expo/vector-icons";
     const topPad = Platform.OS === "web" ? 67 : insets.top;
     const router = useRouter();
 
-    const [activeTab, setActiveTab] = useState<"hikes" | "saved" | "blocked">("hikes");
+    const [activeTab, setActiveTab] = useState<"hikes" | "saved">("hikes");
     const [followingCount, setFollowingCount] = useState(0);
     const [followerCount, setFollowerCount] = useState(0);
     const [savedTrails, setSavedTrails] = useState<SavedTrail[]>([]);
@@ -73,8 +75,6 @@ import { Feather } from "@expo/vector-icons";
     const [showFollowModal, setShowFollowModal] = useState<"followers" | "following" | null>(null);
     const [followUsers, setFollowUsers] = useState<FollowUser[]>([]);
     const [followModalLoading, setFollowModalLoading] = useState(false);
-    const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
-    const [blockedLoading, setBlockedLoading] = useState(false);
 
     const totalMiles = hikes.reduce((s, h) => s + h.distanceMi, 0);
     const totalElev  = hikes.reduce((s, h) => s + h.elevationFt, 0);
@@ -95,39 +95,6 @@ import { Feather } from "@expo/vector-icons";
       const { data: trailsData } = await supabase.from("want_to_hike").select("trail_id, trails(*)").eq("user_id", profile.id).order("created_at", { ascending: false });
       if (trailsData) setSavedTrails(trailsData.map((d: any) => d.trails).filter(Boolean));
       setSavedLoading(false);
-    };
-
-    const fetchBlockedUsers = async () => {
-      if (!profile) return;
-      setBlockedLoading(true);
-      const { data: blockRows } = await supabase.from("blocks").select("id, blocked_id").eq("blocker_id", profile.id);
-      if (blockRows && blockRows.length > 0) {
-        const ids = blockRows.map((r: any) => r.blocked_id);
-        const { data: profiles } = await supabase.from("profiles").select("id, full_name, avatar_url").in("id", ids);
-        if (profiles) {
-          const rowMap: Record<string, string> = {};
-          blockRows.forEach((r: any) => { rowMap[r.blocked_id] = r.id; });
-          setBlockedUsers(profiles.map((p: any) => ({ ...p, blockRowId: rowMap[p.id] })));
-        }
-      } else {
-        setBlockedUsers([]);
-      }
-      setBlockedLoading(false);
-    };
-
-    const unblockUser = (userId: string, name: string | null) => {
-      Alert.alert(
-        "Unblock " + (name || "this user") + "?",
-        "They will be able to see your posts again.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Unblock", onPress: async () => {
-            if (!profile) return;
-            await supabase.from("blocks").delete().eq("blocker_id", profile.id).eq("blocked_id", userId);
-            setBlockedUsers(prev => prev.filter(u => u.id !== userId));
-          }},
-        ]
-      );
     };
 
     const openFollowModal = async (type: "followers" | "following") => {
@@ -151,9 +118,9 @@ import { Feather } from "@expo/vector-icons";
       setFollowModalLoading(false);
     };
 
-    useEffect(() => { fetchCounts(); fetchSaved(); fetchBlockedUsers(); }, [profile?.id]);
+    useEffect(() => { fetchCounts(); fetchSaved(); }, [profile?.id]);
 
-    const onRefresh = async () => { await Promise.all([refresh(), fetchCounts(), fetchSaved(), fetchBlockedUsers()]); };
+    const onRefresh = async () => { await Promise.all([refresh(), fetchCounts(), fetchSaved()]); };
 
     const unsaveTrail = async (trailId: string) => {
       if (!profile) return;
@@ -232,10 +199,6 @@ import { Feather } from "@expo/vector-icons";
               <Feather name="bookmark" size={14} color={activeTab === "saved" ? "#fff" : Colors.text3} />
               <Text style={[styles.tabBtnText, activeTab === "saved" && styles.tabBtnTextActive]}>Saved ({savedTrails.length})</Text>
             </Pressable>
-            <Pressable onPress={() => setActiveTab("blocked")} style={[styles.tabBtn, activeTab === "blocked" && styles.tabBtnActive]}>
-              <Feather name="slash" size={14} color={activeTab === "blocked" ? "#fff" : Colors.text3} />
-              <Text style={[styles.tabBtnText, activeTab === "blocked" && styles.tabBtnTextActive]}>Blocked ({blockedUsers.length})</Text>
-            </Pressable>
           </ScrollView>
 
           {/* Hikes tab */}
@@ -305,41 +268,6 @@ import { Feather } from "@expo/vector-icons";
                     </Pressable>
                   );
                 })}
-              </>
-            )
-          )}
-
-          {/* Blocked tab */}
-          {activeTab === "blocked" && (
-            blockedLoading ? (
-              <View style={styles.empty}><ActivityIndicator color={Colors.accent} /></View>
-            ) : blockedUsers.length === 0 ? (
-              <View style={styles.empty}>
-                <Feather name="slash" size={36} color={Colors.text3} />
-                <Text style={styles.emptyText}>No blocked users</Text>
-                <Text style={styles.emptySubtext}>Users you block won't see your content and you won't see theirs</Text>
-              </View>
-            ) : (
-              <>
-                <Text style={styles.savedSectionLabel}>Blocked Users ({blockedUsers.length})</Text>
-                {blockedUsers.map(u => (
-                  <View key={u.id} style={styles.blockedRow}>
-                    <View style={styles.blockedAvatar}>
-                      {u.avatar_url ? (
-                        <Image source={{ uri: u.avatar_url }} style={styles.blockedAvatarImg} />
-                      ) : (
-                        <Text style={styles.blockedAvatarText}>{getInitials(u.full_name)}</Text>
-                      )}
-                    </View>
-                    <Text style={styles.blockedName} numberOfLines={1}>{u.full_name || "Anonymous Hiker"}</Text>
-                    <Pressable
-                      onPress={() => unblockUser(u.id, u.full_name)}
-                      style={({ pressed }) => [styles.unblockBtn, { opacity: pressed ? 0.7 : 1 }]}
-                    >
-                      <Text style={styles.unblockBtnText}>Unblock</Text>
-                    </Pressable>
-                  </View>
-                ))}
               </>
             )
           )}
@@ -475,13 +403,6 @@ import { Feather } from "@expo/vector-icons";
     savedDiffBadge: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 20, borderWidth: 1 },
     savedDiffText: { fontSize: 11, fontFamily: "Inter_500Medium" },
     savedStatText: { fontSize: 12, color: Colors.text2, fontFamily: "Inter_400Regular" },
-    blockedRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
-    blockedAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surface2, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-    blockedAvatarImg: { width: 40, height: 40, borderRadius: 20 },
-    blockedAvatarText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text3 },
-    blockedName: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text },
-    unblockBtn: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3 },
-    unblockBtnText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.text2 },
     signOutBtn: { marginHorizontal: 20, marginTop: 32, marginBottom: 12, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: Colors.red, alignItems: "center" },
     signOutText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.red },
     modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: 32 },

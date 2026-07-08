@@ -13,6 +13,7 @@ import Animated, {
 } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 import { Hike } from "@/context/HikesContext";
+import { DistanceUnit, formatDistance, formatElevation } from "@/lib/units";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -22,6 +23,7 @@ type Props = {
   onLike: () => void;
   userInitials?: string;
   userColor?: string;
+  distanceUnit?: DistanceUnit;
 };
 
 function getDifficultyStyle(diff: string) {
@@ -119,7 +121,7 @@ function LikeButton({ liked, likes, onLike }: { liked: boolean; likes: number; o
   );
 }
 
-export function TrailCard({ hike, liked, onLike, userInitials = "AL", userColor = Colors.accent }: Props) {
+export function TrailCard({ hike, liked, onLike, userInitials = "AL", userColor = Colors.accent, distanceUnit = "imperial" }: Props) {
   const diffStyle = getDifficultyStyle(hike.difficulty);
   const points = getElevPoints(hike.difficulty);
   const elevColor = getElevColor(hike.difficulty);
@@ -151,11 +153,11 @@ export function TrailCard({ hike, liked, onLike, userInitials = "AL", userColor 
         <Text style={styles.location} numberOfLines={1}>{hike.location}</Text>
         <View style={styles.statsRow}>
           <View style={styles.stat}>
-            <Text style={styles.statVal}>{hike.distanceMi.toFixed(1)} mi</Text>
+            <Text style={styles.statVal}>{formatDistance(hike.distanceMi, distanceUnit)}</Text>
             <Text style={styles.statLbl}>Distance</Text>
           </View>
           <View style={styles.stat}>
-            <Text style={styles.statVal}>{hike.elevationFt.toLocaleString()} ft</Text>
+            <Text style={styles.statVal}>{formatElevation(hike.elevationFt, distanceUnit)}</Text>
             <Text style={styles.statLbl}>Elevation</Text>
           </View>
           {hike.durationHr && (
