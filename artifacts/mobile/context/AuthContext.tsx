@@ -24,7 +24,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     loading: boolean
     networkError: boolean
     signIn: (email: string, password: string) => Promise<boolean>
-    signUp: (email: string, password: string, fullName: string, termsAccepted: boolean) => Promise<boolean>
+    signUp: (email: string, password: string, fullName: string, username: string, termsAccepted: boolean) => Promise<{ ok: boolean; usernameConflict?: boolean }>
+    claimUsername: (username: string) => Promise<{ ok: boolean; conflict?: boolean }>
     signOut: () => Promise<void>
     refreshProfile: () => Promise<void>
     retryAuth: () => void
@@ -103,19 +104,20 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
       }
     }
 
-    const signUp = async (email: string, password: string, fullName: string, termsAccepted: boolean): Promise<boolean> => {
+    const signUp = async (email: string, password: string, fullName: string, username: string, termsAccepted: boolean): Promise<{ ok: boolean; usernameConflict?: boolean }> => {
       if (!termsAccepted) {
         Alert.alert('Sign up failed', 'You must accept the Privacy Policy and Terms of Service to create an account.')
-        return false
+        return { ok: false }
       }
       try {
-        const { error } = await withTimeout(
+        const { data, error } = await withTimeout(
           supabase.auth.signUp({
             email,
             password,
             options: {
               data: {
                 full_name: fullName,
+                username,
                 terms_accepted_at: new Date().toISOString(),
                 terms_version: LEGAL_TERMS_VERSION,
               },
@@ -123,12 +125,41 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
           }),
           15_000
         )
-        if (error) { Alert.alert('Sign up failed', error.message); return false }
-        return true
+        if (error) { Alert.alert('Sign up failed', error.message); return { ok: false } }
+
+        const userId = data.user?.id
+        if (userId && username) {
+          // The profiles row is created asynchronously by a DB trigger on auth.users,
+          // so retry briefly until it exists before setting the chosen username.
+          for (let attempt = 0; attempt < 5; attempt++) {
+            const { error: updateError } = await supabase
+              .from('profiles')
+              .update({ username })
+              .eq('id', userId)
+            if (!updateError) break
+            if (updateError.code === '23505') {
+              return { ok: true, usernameConflict: true }
+            }
+            await new Promise(r => setTimeout(r, 400))
+          }
+        }
+        return { ok: true }
       } catch (e: any) {
         Alert.alert('Sign up failed', e?.message === 'auth_timeout' ? 'Connection timed out. Please try again.' : 'Unexpected error.')
-        return false
+        return { ok: false }
       }
+    }
+
+    const claimUsername = async (username: string): Promise<{ ok: boolean; conflict?: boolean }> => {
+      if (!session) return { ok: false }
+      const { error } = await supabase.from('profiles').update({ username }).eq('id', session.user.id)
+      if (error) {
+        if (error.code === '23505') return { ok: false, conflict: true }
+        Alert.alert('Could not save username', error.message)
+        return { ok: false }
+      }
+      await fetchProfile(session.user.id)
+      return { ok: true }
     }
 
     const signOut = async () => {
@@ -140,7 +171,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     }
 
     return (
-      <AuthContext.Provider value={{ session, profile, loading, networkError, signIn, signUp, signOut, refreshProfile, retryAuth }}>
+      <AuthContext.Provider value={{ session, profile, loading, networkError, signIn, signUp, claimUsername, signOut, refreshProfile, retryAuth }}>
         {children}
       </AuthContext.Provider>
     )
