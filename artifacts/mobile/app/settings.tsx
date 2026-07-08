@@ -112,9 +112,15 @@ export default function SettingsScreen() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
 
-  const [notifLikes, setNotifLikes] = useState(true);
-  const [notifFollows, setNotifFollows] = useState(true);
-  const [notifMilestones, setNotifMilestones] = useState(true);
+  const [notifLikes, setNotifLikes] = useState(
+    (profile as any)?.notif_likes ?? true
+  );
+  const [notifFollows, setNotifFollows] = useState(
+    (profile as any)?.notif_follows ?? true
+  );
+  const [notifMilestones, setNotifMilestones] = useState(
+    (profile as any)?.notif_milestones ?? true
+  );
   const [units, setUnits] = useState<"imperial" | "metric">(
     ((profile as any)?.distance_unit as "imperial" | "metric") || "imperial"
   );
@@ -127,6 +133,42 @@ export default function SettingsScreen() {
       if (error) {
         setUnits(units);
         Alert.alert("Error", "Could not save unit preference. Please try again.");
+      }
+    }
+  };
+
+  const handleToggleLikes = async (next: boolean) => {
+    const previous = notifLikes;
+    setNotifLikes(next);
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ notif_likes: next }).eq("id", profile.id);
+      if (error) {
+        setNotifLikes(previous);
+        Alert.alert("Error", "Could not save notification preference. Please try again.");
+      }
+    }
+  };
+
+  const handleToggleFollows = async (next: boolean) => {
+    const previous = notifFollows;
+    setNotifFollows(next);
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ notif_follows: next }).eq("id", profile.id);
+      if (error) {
+        setNotifFollows(previous);
+        Alert.alert("Error", "Could not save notification preference. Please try again.");
+      }
+    }
+  };
+
+  const handleToggleMilestones = async (next: boolean) => {
+    const previous = notifMilestones;
+    setNotifMilestones(next);
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ notif_milestones: next }).eq("id", profile.id);
+      if (error) {
+        setNotifMilestones(previous);
+        Alert.alert("Error", "Could not save notification preference. Please try again.");
       }
     }
   };
@@ -272,9 +314,9 @@ export default function SettingsScreen() {
 
         <SectionHeader title="Notifications" />
         <View style={styles.section}>
-          <SettingsRow icon="heart" label="Likes on your hikes" isSwitch switchValue={notifLikes} onSwitch={setNotifLikes} />
-          <SettingsRow icon="user-plus" label="New followers" isSwitch switchValue={notifFollows} onSwitch={setNotifFollows} />
-          <SettingsRow icon="award" label="Milestones & badges" isSwitch switchValue={notifMilestones} onSwitch={setNotifMilestones} />
+          <SettingsRow icon="heart" label="Likes on your hikes" isSwitch switchValue={notifLikes} onSwitch={handleToggleLikes} />
+          <SettingsRow icon="user-plus" label="New followers" isSwitch switchValue={notifFollows} onSwitch={handleToggleFollows} />
+          <SettingsRow icon="award" label="Milestones & badges" isSwitch switchValue={notifMilestones} onSwitch={handleToggleMilestones} />
         </View>
 
         <SectionHeader title="Privacy" />
