@@ -115,7 +115,21 @@ export default function SettingsScreen() {
   const [notifLikes, setNotifLikes] = useState(true);
   const [notifFollows, setNotifFollows] = useState(true);
   const [notifMilestones, setNotifMilestones] = useState(true);
-  const [units, setUnits] = useState<"imperial" | "metric">("imperial");
+  const [units, setUnits] = useState<"imperial" | "metric">(
+    ((profile as any)?.distance_unit as "imperial" | "metric") || "imperial"
+  );
+
+  const handleToggleUnits = async () => {
+    const next = units === "imperial" ? "metric" : "imperial";
+    setUnits(next);
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ distance_unit: next }).eq("id", profile.id);
+      if (error) {
+        setUnits(units);
+        Alert.alert("Error", "Could not save unit preference. Please try again.");
+      }
+    }
+  };
 
   const handleSaveProfile = async () => {
     if (!profile) return;
@@ -252,7 +266,7 @@ export default function SettingsScreen() {
             icon="map-pin"
             label="Units"
             value={units === "imperial" ? "Miles / Feet" : "km / Meters"}
-            onPress={() => setUnits(u => u === "imperial" ? "metric" : "imperial")}
+            onPress={handleToggleUnits}
           />
         </View>
 
