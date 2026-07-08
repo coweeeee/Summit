@@ -30,3 +30,13 @@ Supabase's schema.
   the exact `ALTER TABLE` or ask them to add it via the Supabase dashboard),
   then verify it landed using the throwaway-signup trick above before wiring
   up code against it.
+- The code-execution sandbox (code_execution tool) does not inherit the
+  workspace's `.env` vars or `node_modules` — `process.env` is empty there
+  and `@supabase/supabase-js` can't be resolved. Run the throwaway-signup
+  probe as a plain Node script via `bash` from inside `artifacts/mobile`
+  instead (so it picks up the real env vars and can resolve the package),
+  then delete the script when done.
+- Confirmed `profiles` table columns as of 2026-07-08: id, username,
+  full_name, bio, avatar_url, created_at, distance_unit ('imperial' |
+  'metric'), notif_likes, notif_follows, notif_milestones, notif_comments
+  (all booleans). Re-verify with the probe trick if this drifts.

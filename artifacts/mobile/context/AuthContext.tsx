@@ -9,6 +9,13 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     username: string | null
     full_name: string | null
     bio: string | null
+    avatar_url: string | null
+    created_at: string
+    distance_unit: 'imperial' | 'metric'
+    notif_likes: boolean
+    notif_follows: boolean
+    notif_milestones: boolean
+    notif_comments: boolean
   }
 
   type AuthContextType = {

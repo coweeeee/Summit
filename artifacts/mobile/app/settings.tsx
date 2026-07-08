@@ -107,25 +107,25 @@ export default function SettingsScreen() {
 
     const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState(profile?.full_name || "");
-  const [editBio, setEditBio] = useState((profile as any)?.bio || "");
-  const [editUsername, setEditUsername] = useState((profile as any)?.username || "");
+  const [editBio, setEditBio] = useState(profile?.bio || "");
+  const [editUsername, setEditUsername] = useState(profile?.username || "");
   const [saveLoading, setSaveLoading] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
 
   const [notifLikes, setNotifLikes] = useState(
-    (profile as any)?.notif_likes ?? true
+    profile?.notif_likes ?? true
   );
   const [notifFollows, setNotifFollows] = useState(
-    (profile as any)?.notif_follows ?? true
+    profile?.notif_follows ?? true
   );
   const [notifMilestones, setNotifMilestones] = useState(
-    (profile as any)?.notif_milestones ?? true
+    profile?.notif_milestones ?? true
   );
   const [notifComments, setNotifComments] = useState(
-    (profile as any)?.notif_comments ?? true
+    profile?.notif_comments ?? true
   );
   const [units, setUnits] = useState<"imperial" | "metric">(
-    ((profile as any)?.distance_unit as "imperial" | "metric") || "imperial"
+    profile?.distance_unit || "imperial"
   );
 
   const handleToggleUnits = async () => {
@@ -257,7 +257,7 @@ export default function SettingsScreen() {
     }
   };
 
-  const avatarUrl = (profile as any)?.avatar_url;
+  const avatarUrl = profile?.avatar_url;
 
   return (
     <View style={styles.container}>
@@ -299,19 +299,19 @@ export default function SettingsScreen() {
             label="Edit Profile"
             onPress={() => {
               setEditName(profile?.full_name || "");
-              setEditBio((profile as any)?.bio || "");
-              setEditUsername((profile as any)?.username || "");
+              setEditBio(profile?.bio || "");
+              setEditUsername(profile?.username || "");
               setShowEditModal(true);
             }}
           />
           <SettingsRow
             icon="at-sign"
             label="Username"
-            value={(profile as any)?.username || "Not set"}
+            value={profile?.username || "Not set"}
             onPress={() => {
               setEditName(profile?.full_name || "");
-              setEditBio((profile as any)?.bio || "");
-              setEditUsername((profile as any)?.username || "");
+              setEditBio(profile?.bio || "");
+              setEditUsername(profile?.username || "");
               setShowEditModal(true);
             }}
           />

@@ -162,7 +162,7 @@ import { Feather } from "@expo/vector-icons";
     };
 
     const formatElev = (ft: number) => ft >= 1000 ? `${(ft / 1000).toFixed(1)}k` : ft.toString();
-    const avatarUrl = (profile as any)?.avatar_url;
+    const avatarUrl = profile?.avatar_url;
 
     return (
       <View style={styles.container}>
@@ -192,7 +192,7 @@ import { Feather } from "@expo/vector-icons";
               </View>
             </Pressable>
             <Text style={styles.name}>{profile?.full_name || "Hiker"}</Text>
-            <Text style={styles.bio}>{(profile as any)?.bio || "Exploring trails one step at a time"}</Text>
+            <Text style={styles.bio}>{profile?.bio || "Exploring trails one step at a time"}</Text>
 
             <View style={styles.statsRow}>
               <StatCell value={hikes.length.toString()} label="Hikes" />
