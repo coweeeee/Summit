@@ -74,6 +74,7 @@ function SubmitButton({ onPress, disabled }: { onPress: () => void; disabled: bo
 }
 
 function formatDate(d: Date): string { return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
+function formatDateTime(d: Date): string { return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`; }
 
 export default function LogScreen() {
   const { addHike } = useHikes();
@@ -260,10 +261,10 @@ export default function LogScreen() {
 
         {selectedTrail && (
           <>
-            <Text style={styles.fieldLabel}>Date Hiked</Text>
+            <Text style={styles.fieldLabel}>Date & Start Time</Text>
             <Pressable onPress={() => setShowDatePicker(true)} style={styles.datePicker}>
               <Feather name="calendar" size={16} color={Colors.text3} />
-              <Text style={styles.dateText}>{formatDate(hikeDate)}</Text>
+              <Text style={styles.dateText}>{formatDateTime(hikeDate)}</Text>
               <Feather name="chevron-down" size={16} color={Colors.text3} />
             </Pressable>
 
@@ -275,13 +276,13 @@ export default function LogScreen() {
                       <Text style={styles.dateModalTitle}>Select date</Text>
                       <Pressable onPress={() => setShowDatePicker(false)} style={styles.dateModalDone}><Text style={styles.dateModalDoneText}>Done</Text></Pressable>
                     </View>
-                    <DateTimePicker value={hikeDate} mode="date" display="spinner" maximumDate={new Date()} onChange={(_, d) => { if (d) setHikeDate(d); }} textColor={Colors.text} themeVariant="dark" />
+                    <DateTimePicker value={hikeDate} mode="datetime" display="spinner" maximumDate={new Date()} onChange={(_, d) => { if (d) setHikeDate(d); }} textColor={Colors.text} themeVariant="dark" />
                   </View>
                 </View>
               </Modal>
             )}
             {showDatePicker && Platform.OS === "android" && (
-              <DateTimePicker value={hikeDate} mode="date" display="default" maximumDate={new Date()} onChange={(_, d) => { setShowDatePicker(false); if (d) setHikeDate(d); }} />
+              <DateTimePicker value={hikeDate} mode="datetime" display="default" maximumDate={new Date()} onChange={(_, d) => { setShowDatePicker(false); if (d) setHikeDate(d); }} />
             )}
 
             <View style={styles.row3}>

@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { formatDistance, formatElevation } from "@/lib/units";
 
 type LeaderEntry = {
   id: string;
@@ -56,7 +57,8 @@ export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const router = useRouter();
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
+  const distanceUnit = profile?.distance_unit ?? "imperial";
 
   const [activeCategory, setActiveCategory] = useState("hikes");
   const [timePeriod, setTimePeriod] = useState<"alltime" | "week">("alltime");
@@ -127,10 +129,13 @@ export default function LeaderboardScreen() {
   const cat = CATEGORIES.find(c => c.key === activeCategory)!;
 
   const formatValue = (v: number) => {
-    if (activeCategory === "elevation") return v.toLocaleString();
+    if (activeCategory === "miles") return formatDistance(v, distanceUnit);
+    if (activeCategory === "elevation") return formatElevation(v, distanceUnit);
     if (activeCategory === "score") return v.toFixed(1);
     return v.toString();
   };
+
+  const showUnitSuffix = activeCategory !== "miles" && activeCategory !== "elevation";
 
   return (
     <View style={styles.container}>
@@ -162,7 +167,7 @@ export default function LeaderboardScreen() {
         <View style={[styles.myRankBanner, { borderColor: cat.color + "44" }]}>
           <Text style={styles.myRankLabel}>Your rank</Text>
           <Text style={[styles.myRankValue, { color: cat.color }]}>#{myRank.rank}</Text>
-          <Text style={styles.myRankStat}>{formatValue(myRank.value)} {cat.unit}</Text>
+          <Text style={styles.myRankStat}>{formatValue(myRank.value)}{showUnitSuffix ? ` ${cat.unit}` : ""}</Text>
         </View>
       )}
 
@@ -205,7 +210,7 @@ export default function LeaderboardScreen() {
                 </View>
                 <View style={[styles.valueWrap, { backgroundColor: cat.color + "18" }]}>
                   <Text style={[styles.valueText, { color: cat.color }]}>{formatValue(entry.value)}</Text>
-                  <Text style={[styles.unitText, { color: cat.color + "99" }]}>{cat.unit}</Text>
+                  {showUnitSuffix && <Text style={[styles.unitText, { color: cat.color + "99" }]}>{cat.unit}</Text>}
                 </View>
               </Pressable>
             );

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from './AuthContext'
 import { sendPushNotification } from '@/lib/notifications'
-import { BADGE_DEFINITIONS } from '@/lib/badges'
+import { BADGE_DEFINITIONS, isEarlyBirdStart } from '@/lib/badges'
 
 export type DimRating = { name: string; score: number }
 
@@ -92,6 +92,7 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
     if (!session) return
     const prevCount = hikes.length
     const prevElevFt = hikes.reduce((s, h) => s + h.elevationFt, 0)
+    const prevHasEarlyHike = hikes.some(h => isEarlyBirdStart(h.date))
     const { data: hikeData, error } = await supabase
       .from('hikes')
       .insert({
@@ -125,10 +126,11 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
       .eq('user_id', session.user.id)
     const newCount = count ?? prevCount + 1
     const newElevFt = prevElevFt + (hike.elevationFt || 0)
+    const newHasEarlyHike = prevHasEarlyHike || isEarlyBirdStart(hike.date || new Date().toISOString())
 
     BADGE_DEFINITIONS.forEach(badge => {
-      const wasUnlocked = badge.check(prevCount, prevElevFt)
-      const isUnlocked = badge.check(newCount, newElevFt)
+      const wasUnlocked = badge.check(prevCount, prevElevFt, prevHasEarlyHike)
+      const isUnlocked = badge.check(newCount, newElevFt, newHasEarlyHike)
       if (!wasUnlocked && isUnlocked) {
         sendPushNotification({
           targetUserId: session.user.id,

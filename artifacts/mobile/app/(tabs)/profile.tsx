@@ -19,7 +19,7 @@ import { Feather } from "@expo/vector-icons";
   import { useAuth } from "@/context/AuthContext";
   import { useHikes } from "@/context/HikesContext";
   import { supabase } from "@/lib/supabase";
-  import { BADGE_DEFINITIONS } from "@/lib/badges";
+  import { BADGE_DEFINITIONS, isEarlyBirdStart } from "@/lib/badges";
   import { formatDistance, formatElevation } from "@/lib/units";
 
   type SavedTrail = { id: string; name: string; location: string; difficulty: string; rating: number; distance_mi: number; elevation_ft: number; };
@@ -32,7 +32,7 @@ import { Feather } from "@expo/vector-icons";
     { key: "explorer",   icon: "map"         as const, label: "Explorer",    color: Colors.sky,    desc: "Log 5 hikes",  check: badgeCheck("explorer") },
     { key: "summit",     icon: "award"       as const, label: "Summit",      color: Colors.amber,  desc: "Log 10 hikes", check: badgeCheck("summit") },
     { key: "trailblazer",icon: "zap"         as const, label: "Trailblazer", color: "#a89fd4",     desc: "Log 25 hikes", check: badgeCheck("trailblazer") },
-    { key: "earlybird",  icon: "sun"         as const, label: "Early Bird",  color: Colors.amber2, desc: "Coming soon",  check: () => false },
+    { key: "earlybird",  icon: "sun"         as const, label: "Early Bird",  color: Colors.amber2, desc: "Start a hike before 7 AM",  check: badgeCheck("earlybird") },
   ];
 
   function formatDateShort(iso: string): string {
@@ -80,6 +80,7 @@ import { Feather } from "@expo/vector-icons";
 
     const totalMiles = hikes.reduce((s, h) => s + h.distanceMi, 0);
     const totalElev  = hikes.reduce((s, h) => s + h.elevationFt, 0);
+    const hasEarlyHike = hikes.some(h => isEarlyBirdStart(h.date));
 
     const fetchCounts = async () => {
       if (!profile) return;
@@ -177,7 +178,7 @@ import { Feather } from "@expo/vector-icons";
             <Text style={styles.sectionLabel}>Badges</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.badgesRow}>
               {BADGES.map(b => {
-                const unlocked = b.check(hikes.length, totalElev);
+                const unlocked = b.check(hikes.length, totalElev, hasEarlyHike);
                 return (
                   <Pressable key={b.key} style={[styles.badge, !unlocked && styles.badgeLocked]} onPress={() => setSelectedBadge(b)}>
                     <View style={[styles.badgeIcon, { borderColor: unlocked ? b.color : Colors.border }]}>
@@ -284,7 +285,7 @@ import { Feather } from "@expo/vector-icons";
           <Pressable style={styles.modalOverlay} onPress={() => setSelectedBadge(null)}>
             <View style={styles.badgeModal}>
               {selectedBadge && (() => {
-                const unlocked = selectedBadge.check(hikes.length, totalElev);
+                const unlocked = selectedBadge.check(hikes.length, totalElev, hasEarlyHike);
                 return (
                   <>
                     <View style={[styles.badgeModalIcon, { borderColor: unlocked ? selectedBadge.color : Colors.border, opacity: unlocked ? 1 : 0.5 }]}>
@@ -307,6 +308,7 @@ import { Feather } from "@expo/vector-icons";
                     {selectedBadge.key === "summit"      && !unlocked && <Text style={styles.badgeProgress}>{hikes.length} / 10 hikes</Text>}
                     {selectedBadge.key === "trailblazer" && !unlocked && <Text style={styles.badgeProgress}>{hikes.length} / 25 hikes</Text>}
                     {selectedBadge.key === "climber"     && !unlocked && <Text style={styles.badgeProgress}>{formatElevation(totalElev, distanceUnit)} / {formatElevation(5000, distanceUnit)} elevation</Text>}
+                    {selectedBadge.key === "earlybird"   && !unlocked && <Text style={styles.badgeProgress}>Log a hike that started before 7 AM</Text>}
                   </>
                 );
               })()}
