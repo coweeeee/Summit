@@ -94,3 +94,10 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 ### `scripts` (`@workspace/scripts`)
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+
+## Engineering Checklist: Privacy Policy Accuracy
+
+`artifacts/mobile/app/privacy-policy.tsx` currently states that Summit does NOT do live/background GPS tracking and does NOT use any analytics or crash-reporting SDK (only basic server logs). Before merging any change that adds one of the following, update that file (and bump its "Last updated" date) so the policy stays accurate:
+
+- Live or background GPS/location tracking (e.g. tracking a hike in progress, not just letting a user log/select data after the fact).
+- Any analytics or crash-reporting SDK (e.g. Segment, Amplitude, Sentry, Firebase Analytics/Crashlytics, PostHog).

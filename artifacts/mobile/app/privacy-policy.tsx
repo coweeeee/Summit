@@ -5,6 +5,21 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 
+/**
+ * IMPORTANT: Keep this policy in sync with actual data practices.
+ *
+ * This text currently reflects that Summit does NOT do live GPS/background
+ * location tracking and does NOT use any analytics or crash-reporting SDK
+ * (only basic server logs). If either of these is introduced in the future,
+ * update this file (especially Sections 1 and 3) and bump "Last updated"
+ * before shipping:
+ *   - Live/background GPS tracking during hikes -> update Section 3 (Location Data)
+ *   - Any analytics or crash-reporting SDK (e.g. Segment, Amplitude, Sentry,
+ *     Firebase Analytics/Crashlytics) -> add it to Section 1 (Information We
+ *     Collect) and Section 4 (Sharing Your Information) if it shares data
+ *     with a third party
+ */
+
 function SectionTitle({ children }: { children: string }) {
   return <Text style={styles.sectionTitle}>{children}</Text>;
 }
