@@ -39,7 +39,6 @@ export default function SignupScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { signUp, claimUsername } = useAuth();
-  const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
   const [email, setEmail] = useState("");
@@ -88,7 +87,6 @@ export default function SignupScreen() {
   }, [normalizedUsername]);
 
   const canSubmit =
-    !!fullName &&
     usernameStatus === "available" &&
     !!email &&
     password.length >= 6 &&
@@ -99,7 +97,7 @@ export default function SignupScreen() {
     setLoading(true);
     const stillAvailable = await checkUsernameAvailability(normalizedUsername);
     if (!stillAvailable) { setLoading(false); return; }
-    const result = await signUp(email.trim(), password, fullName.trim(), normalizedUsername, agreedToTerms);
+    const result = await signUp(email.trim(), password, normalizedUsername, normalizedUsername, agreedToTerms);
     setLoading(false);
     if (result.ok && !result.usernameConflict) {
       router.replace("/(tabs)");
@@ -166,16 +164,6 @@ export default function SignupScreen() {
           </>
         ) : (
           <>
-            <Text style={styles.label}>Full Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Alex Lee"
-              placeholderTextColor={Colors.text3}
-              value={fullName}
-              onChangeText={setFullName}
-              autoCapitalize="words"
-            />
-
             <Text style={styles.label}>Username</Text>
             <TextInput
               style={styles.input}
