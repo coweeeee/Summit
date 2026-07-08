@@ -44,12 +44,6 @@ import { Feather } from "@expo/vector-icons";
   };
 
   const DIFFICULTY_FILTERS = ["All", "Easy", "Moderate", "Hard", "Expert"];
-  const CATEGORY_FILTERS = [
-    "Waterfall", "Dog-friendly", "Alpine", "Summit", "Permit",
-    "Coastal", "Desert", "Lake", "Historic", "Wildlife",
-    "Scramble", "Glacier", "Volcanic", "Forest", "Arctic",
-    "Wildflowers", "Sunrise", "Remote", "Backcountry",
-  ];
   const SORT_OPTIONS = ["Top Rated", "Shortest", "Longest", "Most Elevation", "Least Elevation"];
   const AVATAR_COLORS = ["#2a3d2a", "#2d2a3d", "#3d2a2a", "#2a3340", "#3d3020"];
 
@@ -168,6 +162,7 @@ import { Feather } from "@expo/vector-icons";
     const [showFilterModal, setShowFilterModal] = useState(false);
     const [showRegionModal, setShowRegionModal] = useState(false);
     const [regions, setRegions] = useState<string[]>([]);
+    const [categoryFilters, setCategoryFilters] = useState<string[]>([]);
 
     const [trails, setTrails] = useState<Trail[]>([]);
     const [mapTrails, setMapTrails] = useState<Trail[]>([]);
@@ -193,7 +188,17 @@ import { Feather } from "@expo/vector-icons";
       }
     };
 
-    useEffect(() => { fetchRegions(); }, []);
+    const fetchCategoryFilters = async () => {
+      const { data } = await supabase.from("trails").select("tags").not("tags", "is", null);
+      if (data) {
+        const unique = Array.from(
+          new Set(data.flatMap((r: any) => Array.isArray(r.tags) ? r.tags : []).filter(Boolean))
+        ).sort() as string[];
+        setCategoryFilters(unique);
+      }
+    };
+
+    useEffect(() => { fetchRegions(); fetchCategoryFilters(); }, []);
 
     const applyBaseFilters = (q: any) => {
       if (diffFilter !== "All") q = q.eq("difficulty", diffFilter);
@@ -545,7 +550,7 @@ import { Feather } from "@expo/vector-icons";
               </View>
               <Text style={styles.modalSectionTitle}>Features</Text>
               <View style={styles.modalChipsWrap}>
-                {CATEGORY_FILTERS.map(cat => {
+                {categoryFilters.map(cat => {
                   const active = activeCategories.includes(cat);
                   return (
                     <Pressable key={cat} onPress={() => toggleCategory(cat)} style={[styles.modalChip, active && styles.modalChipActive]}>
