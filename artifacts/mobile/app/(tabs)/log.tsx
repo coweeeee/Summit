@@ -192,9 +192,8 @@ export default function LogScreen() {
   const handleSubmit = async () => {
     if (!canSubmit || !selectedTrail) return;
     setLoading(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const ratings: DimRating[] = DIMENSIONS.filter(d => dimRatings[d] !== undefined).map(d => ({ name: d, score: dimRatings[d] }));
-    await addHike({
+    const result = await addHike({
       trailName: selectedTrail.name,
       location: selectedTrail.location,
       distanceMi: parseFloat(distanceStr) || 0,
@@ -208,10 +207,17 @@ export default function LogScreen() {
       trailId: selectedTrail.id,
     });
 
+    if ("error" in result) {
+      setLoading(false);
+      Alert.alert("Couldn't save hike", result.error);
+      return;
+    }
+
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
     // Upload photos after hike is created
-    if (photos.length > 0 && session) {
-      const { data: latestHike } = await supabase.from("hikes").select("id").eq("user_id", session.user.id).order("date", { ascending: false }).limit(1).single();
-      if (latestHike) await uploadPhotos(latestHike.id);
+    if (photos.length > 0) {
+      await uploadPhotos(result.id);
     }
 
     setLoading(false);

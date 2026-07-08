@@ -26,7 +26,7 @@ type HikesContextType = {
   hikes: Hike[]
   likedIds: Set<string>
   loading: boolean
-  addHike: (hike: Omit<Hike, 'id'> & { trailId?: string }) => Promise<void>
+  addHike: (hike: Omit<Hike, 'id'> & { trailId?: string }) => Promise<{ id: string } | { error: string }>
   toggleLike: (hikeId: string) => Promise<void>
   refresh: () => Promise<void>
 }
@@ -89,7 +89,7 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
   }, [session?.user.id])
 
   const addHike = async (hike: Omit<Hike, 'id'> & { trailId?: string }) => {
-    if (!session) return
+    if (!session) return { error: 'Not signed in.' }
     const prevCount = hikes.length
     const prevElevFt = hikes.reduce((s, h) => s + h.elevationFt, 0)
     const prevHasEarlyHike = hikes.some(h => isEarlyBirdStart(h.date))
@@ -111,12 +111,14 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
       .select()
       .single()
 
-    if (error || !hikeData) return
+    if (error || !hikeData) return { error: error?.message || 'Could not save hike.' }
 
+    let dimRatingsError: string | undefined
     if (hike.dimRatings && hike.dimRatings.length > 0) {
-      await supabase.from('dim_ratings').insert(
+      const { error: dimError } = await supabase.from('dim_ratings').insert(
         hike.dimRatings.map(d => ({ hike_id: hikeData.id, name: d.name, score: d.score }))
       )
+      if (dimError) dimRatingsError = dimError.message
     }
     await fetchHikes()
 
@@ -141,6 +143,8 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
         })
       }
     })
+
+    return dimRatingsError ? { error: `Hike saved, but ratings failed to save: ${dimRatingsError}` } : { id: hikeData.id }
   }
 
   const toggleLike = async (hikeId: string) => {
