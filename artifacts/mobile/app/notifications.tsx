@@ -103,7 +103,33 @@ export default function NotificationsScreen() {
       });
     }
 
-    // 3. Badge milestones based on hike count
+    // 3. Comments on my hikes
+    if (myHikes && myHikes.length > 0) {
+      const hikeIds = myHikes.map((h: any) => h.id);
+      const { data: comments } = await supabase
+        .from("comments")
+        .select("hike_id, created_at, profiles(full_name)")
+        .in("hike_id", hikeIds)
+        .neq("user_id", session.user.id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (comments) {
+        comments.forEach((c: any) => {
+          const hike = myHikes.find((h: any) => h.id === c.hike_id);
+          const name = c.profiles?.full_name || "Someone";
+          results.push({
+            id: `comment-${c.hike_id}-${c.created_at}`,
+            icon: "message-circle",
+            color: "#8a7ec8",
+            text: `${name} commented on your hike on ${hike?.trail_name || "a trail"}`,
+            time: timeAgo(c.created_at),
+          });
+        });
+      }
+    }
+
+    // 4. Badge milestones based on hike count
     if (myHikes) {
       if (myHikes.length >= 10) {
         results.push({

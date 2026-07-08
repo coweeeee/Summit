@@ -24,3 +24,9 @@ Supabase's schema.
 - Do not use the `database` skill or `DATABASE_URL`/drizzle (`lib/db`) to
   inspect or migrate tables used by the mobile app (e.g. `profiles`) — it's
   the wrong database entirely.
+- There is no service_role key or DB connection string available in this env,
+  so DDL (adding/altering columns) on Supabase tables is not possible from
+  the agent. When a task needs a new column, ask the user to add it (share
+  the exact `ALTER TABLE` or ask them to add it via the Supabase dashboard),
+  then verify it landed using the throwaway-signup trick above before wiring
+  up code against it.

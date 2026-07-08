@@ -121,6 +121,9 @@ export default function SettingsScreen() {
   const [notifMilestones, setNotifMilestones] = useState(
     (profile as any)?.notif_milestones ?? true
   );
+  const [notifComments, setNotifComments] = useState(
+    (profile as any)?.notif_comments ?? true
+  );
   const [units, setUnits] = useState<"imperial" | "metric">(
     ((profile as any)?.distance_unit as "imperial" | "metric") || "imperial"
   );
@@ -168,6 +171,18 @@ export default function SettingsScreen() {
       const { error } = await supabase.from("profiles").update({ notif_milestones: next }).eq("id", profile.id);
       if (error) {
         setNotifMilestones(previous);
+        Alert.alert("Error", "Could not save notification preference. Please try again.");
+      }
+    }
+  };
+
+  const handleToggleComments = async (next: boolean) => {
+    const previous = notifComments;
+    setNotifComments(next);
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ notif_comments: next }).eq("id", profile.id);
+      if (error) {
+        setNotifComments(previous);
         Alert.alert("Error", "Could not save notification preference. Please try again.");
       }
     }
@@ -317,6 +332,7 @@ export default function SettingsScreen() {
           <SettingsRow icon="heart" label="Likes on your hikes" isSwitch switchValue={notifLikes} onSwitch={handleToggleLikes} />
           <SettingsRow icon="user-plus" label="New followers" isSwitch switchValue={notifFollows} onSwitch={handleToggleFollows} />
           <SettingsRow icon="award" label="Milestones & badges" isSwitch switchValue={notifMilestones} onSwitch={handleToggleMilestones} />
+          <SettingsRow icon="message-circle" label="Comments on your hikes" isSwitch switchValue={notifComments} onSwitch={handleToggleComments} />
         </View>
 
         <SectionHeader title="Privacy" />
