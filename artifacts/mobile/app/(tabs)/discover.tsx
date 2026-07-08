@@ -21,6 +21,7 @@ import { Feather } from "@expo/vector-icons";
   import { useAuth } from "@/context/AuthContext";
   import RNMapView, { Marker as RNMarker, Callout as RNCallout } from "@/lib/maps";
   import { formatDistance, formatElevation } from "@/lib/units";
+  import { fetchRatingStats, formatRatingDisplay, TrailRatingStats } from "@/lib/ratings";
 
   const PAGE_SIZE = 20;
   const MAP_FETCH_LIMIT = 300;
@@ -169,6 +170,8 @@ import { Feather } from "@expo/vector-icons";
 
     const [trails, setTrails] = useState<Trail[]>([]);
     const [mapTrails, setMapTrails] = useState<Trail[]>([]);
+    const [ratingStats, setRatingStats] = useState<Map<string, TrailRatingStats>>(new Map());
+    const [ratingStatsFailed, setRatingStatsFailed] = useState(false);
     const [loading, setLoading] = useState(false);
     const [mapLoading, setMapLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -226,11 +229,23 @@ import { Feather } from "@expo/vector-icons";
       return data;
     };
 
+    const mergeRatingStats = async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const { map, failed } = await fetchRatingStats(ids);
+      if (failed) { setRatingStatsFailed(true); return; }
+      setRatingStats(prev => {
+        const next = new Map(prev);
+        map.forEach((v, k) => next.set(k, v));
+        return next;
+      });
+    };
+
     const fetchMapData = async () => {
       setMapLoading(true);
       const { data } = await buildMapQuery();
       setMapTrails(data || []);
       setMapLoading(false);
+      mergeRatingStats((data || []).map((t: any) => t.id));
     };
 
     const fetchSaved = async () => {
@@ -247,6 +262,7 @@ import { Feather } from "@expo/vector-icons";
       setTrails(page);
       offsetRef.current = page.length;
       setLoading(false);
+      mergeRatingStats(page.map(t => t.id));
     };
 
     const loadMore = async () => {
@@ -256,6 +272,7 @@ import { Feather } from "@expo/vector-icons";
       if (page.length > 0) {
         setTrails(prev => [...prev, ...page]);
         offsetRef.current += page.length;
+        mergeRatingStats(page.map(t => t.id));
       }
       setLoadingMore(false);
     };
@@ -268,6 +285,7 @@ import { Feather } from "@expo/vector-icons";
       setTrails(page);
       offsetRef.current = page.length;
       setRefreshing(false);
+      mergeRatingStats(page.map(t => t.id));
     }, [diffFilter, regionFilter, activeCategories, sortBy, debouncedSearch, session]);
 
     useEffect(() => {
@@ -329,7 +347,9 @@ import { Feather } from "@expo/vector-icons";
               <Text style={styles.cardName} numberOfLines={1}>{trail.name}</Text>
               <View style={styles.ratingRow}>
                 <Feather name="star" size={12} color={Colors.amber2} />
-                <Text style={styles.ratingText}>{trail.rating?.toFixed(1)}</Text>
+                <Text style={styles.ratingText}>
+                  {formatRatingDisplay(ratingStats.get(trail.id), trail.rating, ratingStatsFailed)}
+                </Text>
               </View>
             </View>
             <Text style={styles.cardLocation}>{trail.location}</Text>
@@ -384,7 +404,9 @@ import { Feather } from "@expo/vector-icons";
                     <Text style={styles.calloutName} numberOfLines={2}>{trail.name}</Text>
                     <View style={styles.calloutMeta}>
                       <Feather name="star" size={11} color={Colors.amber2} />
-                      <Text style={styles.calloutRating}>{trail.rating?.toFixed(1)}</Text>
+                      <Text style={styles.calloutRating}>
+                        {formatRatingDisplay(ratingStats.get(trail.id), trail.rating, ratingStatsFailed)}
+                      </Text>
                       <Text style={styles.calloutRegion}>{trail.region}</Text>
                     </View>
                     <Text style={styles.calloutTap}>Tap to view trail</Text>

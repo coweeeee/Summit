@@ -18,6 +18,7 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { formatDistance, formatElevation } from "@/lib/units";
+import { fetchRatingStats, formatRatingDisplay, TrailRatingStats } from "@/lib/ratings";
 
 const isExpoGo = Constants.appOwnership === "expo";
 
@@ -113,6 +114,8 @@ export default function TrailDetailScreen() {
   const [actionLoading, setActionLoading] = useState(false);
   const [weather, setWeather] = useState<Weather | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
+  const [ratingStats, setRatingStats] = useState<TrailRatingStats | undefined>(undefined);
+  const [ratingStatsFailed, setRatingStatsFailed] = useState(false);
 
   useEffect(() => {
     const fetchTrail = async () => {
@@ -122,6 +125,9 @@ export default function TrailDetailScreen() {
         const { count } = await supabase.from("hikes").select("*", { count: "exact", head: true }).eq("trail_id", data.id);
         setLogCount(count || 0);
         if (data.lat && data.lng) fetchWeather(data.lat, data.lng);
+        const { map, failed } = await fetchRatingStats([data.id]);
+        setRatingStats(map.get(data.id));
+        setRatingStatsFailed(failed);
       }
       if (session) {
         const { data: wth } = await supabase.from("want_to_hike").select("trail_id").eq("user_id", session.user.id).eq("trail_id", id).single();
@@ -198,7 +204,9 @@ export default function TrailDetailScreen() {
           </View>
           <View style={styles.ratingRow}>
             <Feather name="star" size={16} color={Colors.amber2} />
-            <Text style={styles.ratingText}>{trail.rating}</Text>
+            <Text style={styles.ratingText}>
+              {formatRatingDisplay(ratingStats, trail.rating, ratingStatsFailed)}
+            </Text>
             <Text style={styles.logCountText}>· {logCount} log{logCount !== 1 ? "s" : ""} on Summit</Text>
           </View>
         </View>
