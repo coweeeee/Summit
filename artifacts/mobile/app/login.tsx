@@ -13,19 +13,36 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { signIn } = useAuth();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleLogin = async () => {
-    if (!email || !password) return;
+    if (!identifier || !password) return;
+    setError("");
     setLoading(true);
-    const ok = await signIn(email.trim(), password);
+    const raw = identifier.trim();
+    let emailToUse = raw;
+    if (!raw.includes("@")) {
+      const { data: resolvedEmail, error: rpcError } = await supabase.rpc(
+        "get_email_for_username",
+        { lookup_username: raw }
+      );
+      if (rpcError || !resolvedEmail) {
+        setLoading(false);
+        setError("No account found with that username.");
+        return;
+      }
+      emailToUse = resolvedEmail as string;
+    }
+    const ok = await signIn(emailToUse, password);
     setLoading(false);
     if (ok) router.replace("/(tabs)");
   };
@@ -39,17 +56,17 @@ export default function LoginScreen() {
         <Text style={styles.logo}>Summit</Text>
         <Text style={styles.tagline}>your trail journal</Text>
 
-        <Text style={styles.label}>Email</Text>
+        <Text style={styles.label}>Email or Username</Text>
         <TextInput
           style={styles.input}
-          placeholder="you@email.com"
+          placeholder="you@email.com or username"
           placeholderTextColor={Colors.text3}
-          value={email}
-          onChangeText={setEmail}
+          value={identifier}
+          onChangeText={v => { setIdentifier(v); setError(""); }}
           autoCapitalize="none"
-          keyboardType="email-address"
-          autoComplete="email"
+          autoCorrect={false}
         />
+        {!!error && <Text style={styles.errorText}>{error}</Text>}
 
         <Text style={styles.label}>Password</Text>
         <TextInput
@@ -134,4 +151,5 @@ const styles = StyleSheet.create({
     color: Colors.text3,
   },
   switchLink: { color: Colors.accent, fontFamily: "Inter_600SemiBold" },
+  errorText: { color: Colors.red, fontFamily: "Inter_400Regular", fontSize: 13, marginTop: 6 },
 });

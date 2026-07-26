@@ -96,7 +96,7 @@ import { Feather } from "@expo/vector-icons";
         .from("hikes").select("*, dim_ratings(*)")
         .order("date", { ascending: false })
         .range(offset, offset + PAGE_SIZE - 1);
-      if (error || !hikesData || hikesData.length === 0) return [];
+      if (error || !hikesData || hikesData.length === 0) { setHasMore(false); return []; }
       const userIds = [...new Set(hikesData.map((h: any) => h.user_id))];
       const hikeIds = hikesData.map((h: any) => h.id);
       const [profilesRes, photosRes, commentsRes, likesRes] = await Promise.all([
