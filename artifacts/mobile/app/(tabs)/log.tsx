@@ -96,6 +96,9 @@ export default function LogScreen() {
   const [reqLocation, setReqLocation] = useState("");
   const [reqNotes, setReqNotes] = useState("");
   const [reqSubmitting, setReqSubmitting] = useState(false);
+  const [reqSimilarTrails, setReqSimilarTrails] = useState<Array<{ id: string; name: string; location: string; similarity: number }>>([]);
+  const [reqSimilarLoading, setReqSimilarLoading] = useState(false);
+  const reqSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [distanceStr, setDistanceStr] = useState("");
   const [elevationStr, setElevationStr] = useState("");
@@ -146,10 +149,38 @@ export default function LogScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
+  // Debounced duplicate check: call find_similar_trails RPC 400ms after typing stops
+  useEffect(() => {
+    if (reqSearchTimeout.current) clearTimeout(reqSearchTimeout.current);
+    if (!reqName.trim() || reqName.trim().length < 2) {
+      setReqSimilarTrails([]);
+      setReqSimilarLoading(false);
+      return;
+    }
+    setReqSimilarLoading(true);
+    reqSearchTimeout.current = setTimeout(async () => {
+      const { data } = await supabase.rpc("find_similar_trails", { search_name: reqName.trim() });
+      setReqSimilarTrails(
+        (data ?? []).filter((t: any) => t.similarity > 0.2)
+      );
+      setReqSimilarLoading(false);
+    }, 400);
+    return () => { if (reqSearchTimeout.current) clearTimeout(reqSearchTimeout.current); };
+  }, [reqName]);
+
+  const selectSimilarTrail = async (trailId: string) => {
+    const { data } = await supabase.from("trails").select("*").eq("id", trailId).single();
+    if (data) {
+      setShowTrailRequest(false);
+      selectTrail(data);
+    }
+  };
+
   const openTrailRequest = () => {
     setReqName(trailQuery.trim());
     setReqLocation("");
     setReqNotes("");
+    setReqSimilarTrails([]);
     setShowTrailRequest(true);
   };
 
@@ -483,6 +514,41 @@ export default function LogScreen() {
             <Text style={styles.fieldLabel}>Trail Name</Text>
             <TextInput style={styles.input} placeholder="e.g. Eagle Peak Loop" placeholderTextColor={Colors.text3} value={reqName} onChangeText={setReqName} maxLength={120} />
 
+            {reqSimilarLoading && (
+              <View style={styles.similarLoading}>
+                <ActivityIndicator size="small" color={Colors.accent} />
+                <Text style={styles.similarLoadingText}>Checking catalog…</Text>
+              </View>
+            )}
+            {!reqSimilarLoading && reqSimilarTrails.length > 0 && (
+              <View style={styles.similarBox}>
+                <View style={styles.similarHeader}>
+                  <Feather name="alert-circle" size={13} color={Colors.amber2} />
+                  <Text style={styles.similarTitle}>Already in our catalog?</Text>
+                </View>
+                {reqSimilarTrails.map((t, i) => (
+                  <Pressable
+                    key={t.id}
+                    onPress={() => selectSimilarTrail(t.id)}
+                    style={({ pressed }) => [
+                      styles.similarRow,
+                      i === reqSimilarTrails.length - 1 && styles.similarRowLast,
+                      { opacity: pressed ? 0.7 : 1 },
+                    ]}
+                  >
+                    <View style={styles.similarInfo}>
+                      <Text style={styles.similarName} numberOfLines={1}>{t.name}</Text>
+                      <Text style={styles.similarLocation} numberOfLines={1}>{t.location}</Text>
+                    </View>
+                    <View style={styles.similarAction}>
+                      <Text style={styles.similarUse}>Use this trail</Text>
+                      <Feather name="chevron-right" size={14} color={Colors.accent} />
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
             <Text style={styles.fieldLabel}>Location</Text>
             <TextInput style={styles.input} placeholder="Park, city, or state (optional)" placeholderTextColor={Colors.text3} value={reqLocation} onChangeText={setReqLocation} maxLength={160} />
 
@@ -577,6 +643,18 @@ const styles = StyleSheet.create({
   emptyText: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text2 },
   emptySubtext: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, textAlign: "center" },
   resultsLabel: { fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: Colors.text3, paddingHorizontal: 20, paddingVertical: 12, fontFamily: "Inter_500Medium" },
+  similarLoading: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: -8, marginBottom: 16 },
+  similarLoadingText: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3 },
+  similarBox: { marginTop: -8, marginBottom: 16, borderWidth: 1, borderColor: Colors.amber2 + "66", borderRadius: 10, backgroundColor: "rgba(210,162,58,0.06)", overflow: "hidden" },
+  similarHeader: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: Colors.amber2 + "33" },
+  similarTitle: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.amber2, textTransform: "uppercase", letterSpacing: 0.5 },
+  similarRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  similarRowLast: { borderBottomWidth: 0 },
+  similarInfo: { flex: 1 },
+  similarName: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text, marginBottom: 1 },
+  similarLocation: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3 },
+  similarAction: { flexDirection: "row", alignItems: "center", gap: 3 },
+  similarUse: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.accent },
   requestBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 20, maxWidth: "100%", borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 12 },
   requestBtnText: { flexShrink: 1, fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.accent },
   requestLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 18 },
