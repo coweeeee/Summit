@@ -90,6 +90,13 @@ export default function LogScreen() {
   const [trailSearchLoading, setTrailSearchLoading] = useState(false);
   const [selectedTrail, setSelectedTrail] = useState<Trail | null>(null);
 
+  // "Can't find your trail" request flow
+  const [showTrailRequest, setShowTrailRequest] = useState(false);
+  const [reqName, setReqName] = useState("");
+  const [reqLocation, setReqLocation] = useState("");
+  const [reqNotes, setReqNotes] = useState("");
+  const [reqSubmitting, setReqSubmitting] = useState(false);
+
   const [distanceStr, setDistanceStr] = useState("");
   const [elevationStr, setElevationStr] = useState("");
   const [durationStr, setDurationStr] = useState("");
@@ -137,6 +144,36 @@ export default function LogScreen() {
     setShowTrailSearch(false);
     setTrailQuery(""); setTrailResults([]);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  };
+
+  const openTrailRequest = () => {
+    setReqName(trailQuery.trim());
+    setReqLocation("");
+    setReqNotes("");
+    setShowTrailRequest(true);
+  };
+
+  const submitTrailRequest = async () => {
+    if (!session || !reqName.trim() || reqSubmitting) return;
+    setReqSubmitting(true);
+    // `status` is left to its 'pending' column default. RLS requires
+    // requested_by to match the caller, so it's set explicitly here.
+    const { error } = await supabase.from("trail_requests").insert({
+      requested_by: session.user.id,
+      trail_name: reqName.trim(),
+      location: reqLocation.trim() || null,
+      notes: reqNotes.trim() || null,
+    });
+    setReqSubmitting(false);
+    if (error) {
+      Alert.alert("Couldn't send request", error.message);
+      return;
+    }
+    setShowTrailRequest(false);
+    setShowTrailSearch(false);
+    setTrailQuery(""); setTrailResults([]);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert("Request sent", "Thanks! We'll review this trail and add it to the catalog.");
   };
 
   const pickPhoto = async () => {
@@ -390,6 +427,12 @@ export default function LogScreen() {
               <Feather name={trailQuery ? "map" : "search"} size={32} color={Colors.text3} />
               <Text style={styles.emptyText}>{trailQuery ? "No trails found" : "Search for a trail"}</Text>
               <Text style={styles.emptySubtext}>{trailQuery ? "Try a different search" : "Type a trail name, park, or state"}</Text>
+              {trailQuery.trim().length > 0 && (
+                <Pressable onPress={openTrailRequest} style={styles.requestBtn}>
+                  <Feather name="plus-circle" size={16} color={Colors.accent} />
+                  <Text style={styles.requestBtnText} numberOfLines={1}>Request &ldquo;{trailQuery.trim()}&rdquo;</Text>
+                </Pressable>
+              )}
             </View>
           ) : (
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 60 }}>
@@ -413,8 +456,49 @@ export default function LogScreen() {
                   </Pressable>
                 );
               })}
+              <Pressable onPress={openTrailRequest} style={styles.requestLink}>
+                <Feather name="help-circle" size={14} color={Colors.text3} />
+                <Text style={styles.requestLinkText}>Don&apos;t see your trail? Request it</Text>
+              </Pressable>
             </ScrollView>
           )}
+        </View>
+      </Modal>
+
+      {/* Trail Request Modal */}
+      <Modal visible={showTrailRequest} animationType="slide" presentationStyle="pageSheet">
+        <View style={[styles.searchModal, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.searchModalHeader}>
+            <Text style={styles.searchModalTitle}>Request a Trail</Text>
+            <Pressable onPress={() => setShowTrailRequest(false)}>
+              <Feather name="x" size={22} color={Colors.text} />
+            </Pressable>
+          </View>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.requestForm}>
+            <View style={styles.trailHint}>
+              <Feather name="info" size={13} color={Colors.text3} />
+              <Text style={styles.trailHintText}>Missing a trail? Send it over and we&apos;ll review it for the catalog. You can log this hike once it&apos;s added.</Text>
+            </View>
+
+            <Text style={styles.fieldLabel}>Trail Name</Text>
+            <TextInput style={styles.input} placeholder="e.g. Eagle Peak Loop" placeholderTextColor={Colors.text3} value={reqName} onChangeText={setReqName} maxLength={120} />
+
+            <Text style={styles.fieldLabel}>Location</Text>
+            <TextInput style={styles.input} placeholder="Park, city, or state (optional)" placeholderTextColor={Colors.text3} value={reqLocation} onChangeText={setReqLocation} maxLength={160} />
+
+            <Text style={styles.fieldLabel}>Notes</Text>
+            <TextInput style={[styles.input, styles.textarea]} placeholder="Trailhead, distance, anything that helps us find it (optional)" placeholderTextColor={Colors.text3} value={reqNotes} onChangeText={setReqNotes} multiline numberOfLines={3} maxLength={500} />
+
+            <Pressable
+              onPress={submitTrailRequest}
+              disabled={!reqName.trim() || reqSubmitting}
+              style={[styles.submitBtn, (!reqName.trim() || reqSubmitting) && styles.submitBtnDisabled]}
+            >
+              {reqSubmitting
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <><Feather name="send" size={16} color="#fff" /><Text style={styles.submitBtnText}>Send Request</Text></>}
+            </Pressable>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -493,6 +577,11 @@ const styles = StyleSheet.create({
   emptyText: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text2 },
   emptySubtext: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, textAlign: "center" },
   resultsLabel: { fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: Colors.text3, paddingHorizontal: 20, paddingVertical: 12, fontFamily: "Inter_500Medium" },
+  requestBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 20, maxWidth: "100%", borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 12 },
+  requestBtnText: { flexShrink: 1, fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.accent },
+  requestLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 18 },
+  requestLinkText: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3 },
+  requestForm: { paddingHorizontal: 20, paddingBottom: 40 },
   resultRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
   resultInfo: { flex: 1 },
   resultName: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.text, marginBottom: 2 },
