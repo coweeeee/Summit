@@ -344,8 +344,8 @@ import { Feather } from "@expo/vector-icons";
             <Text style={styles.cardLocation}>{trail.location}</Text>
             {trail.description ? <Text style={styles.cardDesc} numberOfLines={2}>{trail.description}</Text> : null}
             <View style={styles.cardStats}>
-              <View style={styles.stat}><Text style={styles.statVal}>{formatDistance(trail.distance_mi, distanceUnit)}</Text><Text style={styles.statLbl}>Distance</Text></View>
-              <View style={styles.stat}><Text style={styles.statVal}>{formatElevation(trail.elevation_ft, distanceUnit)}</Text><Text style={styles.statLbl}>Elevation</Text></View>
+              <View style={styles.stat}><Text style={styles.statVal}>{trail.distance_mi != null ? formatDistance(trail.distance_mi, distanceUnit) : "—"}</Text><Text style={styles.statLbl}>Distance</Text></View>
+              <View style={styles.stat}><Text style={styles.statVal}>{trail.elevation_ft != null ? formatElevation(trail.elevation_ft, distanceUnit) : "—"}</Text><Text style={styles.statLbl}>Elevation</Text></View>
             </View>
             {trail.tags && trail.tags.length > 0 && (
               <View style={styles.tagsRow}>
