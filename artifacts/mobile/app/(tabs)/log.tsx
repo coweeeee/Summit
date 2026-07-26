@@ -93,6 +93,7 @@ export default function LogScreen() {
   const [distanceStr, setDistanceStr] = useState("");
   const [elevationStr, setElevationStr] = useState("");
   const [durationStr, setDurationStr] = useState("");
+  const [skipDuration, setSkipDuration] = useState(false);
   const [difficulty, setDifficulty] = useState("");
   const [notes, setNotes] = useState("");
   const [dimRatings, setDimRatings] = useState<Record<string, number>>({});
@@ -160,7 +161,7 @@ export default function LogScreen() {
   };
 
   const reset = () => {
-    setSelectedTrail(null); setDistanceStr(""); setElevationStr(""); setDurationStr("");
+    setSelectedTrail(null); setDistanceStr(""); setElevationStr(""); setDurationStr(""); setSkipDuration(false);
     setDifficulty(""); setNotes(""); setDimRatings({}); setHikeDate(new Date()); setPhotos([]);
   };
 
@@ -169,6 +170,22 @@ export default function LogScreen() {
     : 0;
 
   const canSubmit = !!selectedTrail && difficulty !== "" && !loading;
+
+  // Duration is optional: skipped explicitly, or simply left blank. Anything
+  // that isn't a positive number is stored as null rather than 0, so "no time
+  // recorded" stays distinguishable from a genuine 0.0 hr entry.
+  const durationHr = (() => {
+    if (skipDuration) return undefined;
+    const parsed = parseFloat(durationStr);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  })();
+
+  const toggleSkipDuration = () => {
+    Haptics.selectionAsync();
+    const next = !skipDuration;
+    setSkipDuration(next);
+    if (next) setDurationStr("");
+  };
 
   const uploadPhotos = async (hikeId: string) => {
     if (!session || photos.length === 0) return;
@@ -198,7 +215,7 @@ export default function LogScreen() {
       location: selectedTrail.location,
       distanceMi: parseFloat(distanceStr) || 0,
       elevationFt: parseInt(elevationStr) || 0,
-      durationHr: parseFloat(durationStr) || undefined,
+      durationHr,
       difficulty,
       overallScore: overallScore || 0,
       dimRatings: ratings,
@@ -294,8 +311,15 @@ export default function LogScreen() {
             <View style={styles.row3}>
               <View style={styles.col}><Text style={styles.fieldLabel}>Distance (mi)</Text><TextInput style={styles.input} placeholder="0.0" placeholderTextColor={Colors.text3} value={distanceStr} onChangeText={v => setDistanceStr(filterDecimal(v))} keyboardType="decimal-pad" maxLength={6} /></View>
               <View style={styles.col}><Text style={styles.fieldLabel}>Elevation (ft)</Text><TextInput style={styles.input} placeholder="0" placeholderTextColor={Colors.text3} value={elevationStr} onChangeText={v => setElevationStr(filterInteger(v))} keyboardType="number-pad" maxLength={6} /></View>
-              <View style={styles.col}><Text style={styles.fieldLabel}>Duration (hr)</Text><TextInput style={styles.input} placeholder="0.0" placeholderTextColor={Colors.text3} value={durationStr} onChangeText={v => setDurationStr(filterDecimal(v))} keyboardType="decimal-pad" maxLength={5} /></View>
+              <View style={styles.col}><Text style={styles.fieldLabel}>Duration (hr)</Text><TextInput style={[styles.input, skipDuration && styles.inputSkipped]} placeholder={skipDuration ? "—" : "0.0"} placeholderTextColor={Colors.text3} value={durationStr} onChangeText={v => setDurationStr(filterDecimal(v))} keyboardType="decimal-pad" maxLength={5} editable={!skipDuration} /></View>
             </View>
+
+            <Pressable onPress={toggleSkipDuration} style={styles.skipRow} accessibilityRole="checkbox" accessibilityState={{ checked: skipDuration }}>
+              <View style={[styles.skipBox, skipDuration && styles.skipBoxActive]}>
+                {skipDuration && <Feather name="check" size={11} color="#fff" />}
+              </View>
+              <Text style={[styles.skipText, skipDuration && styles.skipTextActive]}>I didn&apos;t track my time</Text>
+            </Pressable>
 
             <Text style={styles.fieldLabel}>Difficulty</Text>
             <View style={styles.diffRow}>
@@ -431,6 +455,12 @@ const styles = StyleSheet.create({
   textarea: { minHeight: 80, textAlignVertical: "top" },
   row3: { flexDirection: "row", gap: 10 },
   col: { flex: 1 },
+  inputSkipped: { opacity: 0.45 },
+  skipRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: -8, marginBottom: 16 },
+  skipBox: { width: 18, height: 18, borderRadius: 5, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3, alignItems: "center", justifyContent: "center" },
+  skipBoxActive: { backgroundColor: Colors.green2, borderColor: Colors.green2 },
+  skipText: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3 },
+  skipTextActive: { color: Colors.text2 },
   diffRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 },
   diffChip: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3 },
   diffChipActive: { backgroundColor: Colors.green2, borderColor: Colors.green2 },
