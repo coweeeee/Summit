@@ -25,6 +25,7 @@ export type Hike = {
 type HikesContextType = {
   hikes: Hike[]
   likedIds: Set<string>
+  awardedBadgeKeys: Set<string>
   loading: boolean
   addHike: (hike: Omit<Hike, 'id'> & { trailId?: string }) => Promise<{ id: string } | { error: string }>
   toggleLike: (hikeId: string) => Promise<void>
@@ -55,18 +56,67 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
   const { session } = useAuth()
   const [hikes, setHikes] = useState<Hike[]>([])
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set())
+  const [awardedBadgeKeys, setAwardedBadgeKeys] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
 
   const fetchHikes = async () => {
-    if (!session) return
+    if (!session) return []
     setLoading(true)
     const { data } = await supabase
       .from('hikes')
       .select('*, dim_ratings(*)')
       .eq('user_id', session.user.id)
       .order('date', { ascending: false })
-    if (data) setHikes(data.map(mapHike))
+    const mapped = data ? data.map(mapHike) : []
+    setHikes(mapped)
     setLoading(false)
+    return mapped
+  }
+
+  const fetchBadges = async () => {
+    if (!session) return new Set<string>()
+    const { data } = await supabase
+      .from('user_badges')
+      .select('badge_key')
+      .eq('user_id', session.user.id)
+    const keys = new Set<string>((data || []).map((r: any) => r.badge_key))
+    setAwardedBadgeKeys(keys)
+    return keys
+  }
+
+  // `user_badges` is the permanent record of what's been earned; the checks in
+  // BADGE_DEFINITIONS only decide *when* to award. The client can't write that
+  // table (there's no INSERT policy) - the send-notification edge function
+  // records the award with the service role and is idempotent on
+  // (user_id, badge_key), so re-sending an already-awarded badge is a no-op.
+  //
+  // Anything earned but not yet recorded is re-sent here rather than assumed
+  // saved, so a dropped award call - or a badge earned before awards were
+  // recorded at all - heals on the next load instead of silently never landing.
+  const syncBadges = async (currentHikes: Hike[]) => {
+    if (!session) return
+    const awarded = await fetchBadges()
+    const hikeCount = currentHikes.length
+    const totalElevFt = currentHikes.reduce((s, h) => s + h.elevationFt, 0)
+    const hasEarlyHike = currentHikes.some(h => isEarlyBirdStart(h.date))
+
+    const missing = BADGE_DEFINITIONS.filter(
+      b => b.check(hikeCount, totalElevFt, hasEarlyHike) && !awarded.has(b.key)
+    )
+    if (missing.length === 0) return
+
+    await Promise.all(
+      missing.map(b =>
+        sendPushNotification({
+          targetUserId: session.user.id,
+          type: 'milestone',
+          title: 'Badge earned!',
+          body: `You earned the ${b.label}`,
+          badgeKey: b.key,
+        })
+      )
+    )
+    await fetchBadges()
   }
 
   const fetchLikes = async () => {
@@ -80,19 +130,17 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (session) {
-      fetchHikes()
+      fetchHikes().then(syncBadges)
       fetchLikes()
     } else {
       setHikes([])
       setLikedIds(new Set())
+      setAwardedBadgeKeys(new Set())
     }
   }, [session?.user.id])
 
   const addHike = async (hike: Omit<Hike, 'id'> & { trailId?: string }) => {
     if (!session) return { error: 'Not signed in.' }
-    const prevCount = hikes.length
-    const prevElevFt = hikes.reduce((s, h) => s + h.elevationFt, 0)
-    const prevHasEarlyHike = hikes.some(h => isEarlyBirdStart(h.date))
     const { data: hikeData, error } = await supabase
       .from('hikes')
       .insert({
@@ -120,31 +168,15 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
       )
       if (dimError) dimRatingsError = dimError.message
     }
-    await fetchHikes()
-
-    const { count } = await supabase
-      .from('hikes')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', session.user.id)
-    const newCount = count ?? prevCount + 1
-    const newElevFt = prevElevFt + (hike.elevationFt || 0)
-    const newHasEarlyHike = prevHasEarlyHike || isEarlyBirdStart(hike.date || new Date().toISOString())
-
-    BADGE_DEFINITIONS.forEach(badge => {
-      const wasUnlocked = badge.check(prevCount, prevElevFt, prevHasEarlyHike)
-      const isUnlocked = badge.check(newCount, newElevFt, newHasEarlyHike)
-      if (!wasUnlocked && isUnlocked) {
-        sendPushNotification({
-          targetUserId: session.user.id,
-          type: 'milestone',
-          title: 'Badge earned!',
-          body: `You earned the ${badge.label}`,
-          badgeKey: badge.key,
-        })
-      }
-    })
+    // Recomputing from the refreshed list rather than from a predicted count
+    // keeps the award decision consistent with what's actually persisted.
+    await syncBadges(await fetchHikes())
 
     return dimRatingsError ? { error: `Hike saved, but ratings failed to save: ${dimRatingsError}` } : { id: hikeData.id }
+  }
+
+  const refresh = async () => {
+    await syncBadges(await fetchHikes())
   }
 
   const toggleLike = async (hikeId: string) => {
@@ -161,7 +193,7 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <HikesContext.Provider value={{ hikes, likedIds, loading, addHike, toggleLike, refresh: fetchHikes }}>
+    <HikesContext.Provider value={{ hikes, likedIds, awardedBadgeKeys, loading, addHike, toggleLike, refresh }}>
       {children}
     </HikesContext.Provider>
   )

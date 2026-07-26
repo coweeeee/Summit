@@ -63,7 +63,7 @@ import { Feather } from "@expo/vector-icons";
   export default function ProfileScreen() {
     const { profile, signOut } = useAuth();
     const distanceUnit = profile?.distance_unit ?? "imperial";
-    const { hikes, refresh, loading: hikesLoading } = useHikes();
+    const { hikes, awardedBadgeKeys, refresh, loading: hikesLoading } = useHikes();
     const insets = useSafeAreaInsets();
     const topPad = Platform.OS === "web" ? 67 : insets.top;
     const router = useRouter();
@@ -188,7 +188,10 @@ import { Feather } from "@expo/vector-icons";
             <Text style={styles.sectionLabel}>Badges</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.badgesRow}>
               {BADGES.map(b => {
-                const unlocked = b.check(hikes.length, totalElev, hasEarlyHike);
+                // Server record wins: once awarded, a badge stays earned even
+                // if the hikes behind it are later deleted. The local check is
+                // only a fallback for an award still in flight.
+                const unlocked = awardedBadgeKeys.has(b.key) || b.check(hikes.length, totalElev, hasEarlyHike);
                 return (
                   <Pressable key={b.key} style={[styles.badge, !unlocked && styles.badgeLocked]} onPress={() => setSelectedBadge(b)}>
                     <View style={[styles.badgeIcon, { borderColor: unlocked ? b.color : Colors.border }]}>
