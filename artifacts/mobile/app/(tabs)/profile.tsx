@@ -85,8 +85,8 @@ import { Feather } from "@expo/vector-icons";
     const fetchCounts = async () => {
       if (!profile) return;
       const [{ count: following }, { count: followers }] = await Promise.all([
-        supabase.from("follows").select("*", { count: "exact", head: true }).eq("follower_id", profile.id),
-        supabase.from("follows").select("*", { count: "exact", head: true }).eq("following_id", profile.id),
+        supabase.from("follows").select("*", { count: "exact", head: true }).eq("follower_id", profile.id).eq("status", "accepted"),
+        supabase.from("follows").select("*", { count: "exact", head: true }).eq("following_id", profile.id).eq("status", "accepted"),
       ]);
       setFollowingCount(following || 0);
       setFollowerCount(followers || 0);
@@ -106,10 +106,10 @@ import { Feather } from "@expo/vector-icons";
       setFollowModalLoading(true);
       let userIds: string[] = [];
       if (type === "followers") {
-        const { data } = await supabase.from("follows").select("follower_id").eq("following_id", profile.id);
+        const { data } = await supabase.from("follows").select("follower_id").eq("following_id", profile.id).eq("status", "accepted");
         userIds = (data || []).map((f: any) => f.follower_id);
       } else {
-        const { data } = await supabase.from("follows").select("following_id").eq("follower_id", profile.id);
+        const { data } = await supabase.from("follows").select("following_id").eq("follower_id", profile.id).eq("status", "accepted");
         userIds = (data || []).map((f: any) => f.following_id);
       }
       if (userIds.length > 0) {
@@ -171,6 +171,16 @@ import { Feather } from "@expo/vector-icons";
               <StatCell value={followingCount.toString()} label="Following" onPress={() => openFollowModal("following")} />
               <StatCell value={followerCount.toString()} label="Followers" onPress={() => openFollowModal("followers")} />
             </View>
+            {profile?.is_private && (
+              <Pressable
+                onPress={() => router.push("/notifications")}
+                style={({ pressed }) => [styles.requestsLink, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Feather name="users" size={14} color={Colors.accent} />
+                <Text style={styles.requestsLinkText}>Manage Follow Requests</Text>
+                <Feather name="chevron-right" size={14} color={Colors.accent} />
+              </Pressable>
+            )}
           </View>
 
           {/* Badges */}
@@ -367,6 +377,8 @@ import { Feather } from "@expo/vector-icons";
     avatarEditDot: { position: "absolute", bottom: 0, right: 0, width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.green2, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: Colors.bg },
     name: { fontFamily: "Inter_700Bold", fontSize: 22, color: Colors.text, marginBottom: 4 },
     bio: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, marginBottom: 20, textAlign: "center" },
+    requestsLink: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3 },
+    requestsLinkText: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.accent },
     statsRow: { flexDirection: "row", width: "100%", borderRadius: 12, overflow: "hidden", gap: 1, backgroundColor: Colors.border },
     statCell: { flex: 1, backgroundColor: Colors.bg3, paddingVertical: 12, alignItems: "center" },
     statCellVal: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.accent },

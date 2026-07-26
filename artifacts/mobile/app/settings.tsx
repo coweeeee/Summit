@@ -112,6 +112,22 @@ export default function SettingsScreen() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
 
+  const [isPrivate, setIsPrivate] = useState(profile?.is_private ?? false);
+
+  const handleTogglePrivate = async (next: boolean) => {
+    const previous = isPrivate;
+    setIsPrivate(next);
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ is_private: next }).eq("id", profile.id);
+      if (error) {
+        setIsPrivate(previous);
+        Alert.alert("Error", "Could not save privacy setting. Please try again.");
+      } else {
+        await refreshProfile();
+      }
+    }
+  };
+
   const [notifLikes, setNotifLikes] = useState(
     profile?.notif_likes ?? true
   );
@@ -348,11 +364,15 @@ export default function SettingsScreen() {
         <SectionHeader title="Privacy" />
         <View style={styles.section}>
           <SettingsRow
-            icon="globe"
-            label="Profile visibility"
-            value="Public"
-            onPress={() => Alert.alert("Profile visibility", "Your profile is public and visible to all Summit users.")}
+            icon="lock"
+            label="Private Account"
+            isSwitch
+            switchValue={isPrivate}
+            onSwitch={handleTogglePrivate}
           />
+          <View style={styles.settingHint}>
+            <Text style={styles.settingHintText}>Only approved followers can see your hikes and activity.</Text>
+          </View>
           <SettingsRow icon="slash" label="Blocked Accounts" onPress={() => router.push("/blocked-users")} />
         </View>
 
@@ -500,6 +520,8 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
+  settingHint: { paddingHorizontal: 20, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: Colors.border, backgroundColor: Colors.bg3 },
+  settingHintText: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3, lineHeight: 17 },
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,

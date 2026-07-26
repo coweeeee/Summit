@@ -19,7 +19,14 @@ import { Feather } from "@expo/vector-icons";
   import { sendPushNotification } from "@/lib/notifications";
   import { formatDistance, formatElevation } from "@/lib/units";
 
-  type Profile = { id: string; full_name: string | null; bio: string | null; avatar_url: string | null; };
+  type Profile = {
+    id: string;
+    full_name: string | null;
+    bio: string | null;
+    avatar_url: string | null;
+    username: string | null;
+    is_private: boolean;
+  };
   type Hike = { id: string; trail_name: string; location: string; distance_mi: number; elevation_ft: number; overall_score: number; difficulty: string; date: string; };
 
   function formatDate(iso: string) {
@@ -49,7 +56,8 @@ import { Feather } from "@expo/vector-icons";
 
     const [profile, setProfile] = useState<Profile | null>(null);
     const [hikes, setHikes] = useState<Hike[]>([]);
-    const [isFollowing, setIsFollowing] = useState(false);
+    const [followStatus, setFollowStatus] = useState<"accepted" | "pending" | null>(null);
+    const [targetIsPrivate, setTargetIsPrivate] = useState(false);
     const [followerCount, setFollowerCount] = useState(0);
     const [followingCount, setFollowingCount] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -63,22 +71,25 @@ import { Feather } from "@expo/vector-icons";
           supabase.from("profiles").select("*").eq("id", id).single(),
           supabase.from("hikes").select("*").eq("user_id", id).order("date", { ascending: false }).limit(20),
         ]);
-        if (p) setProfile(p);
+        if (p) {
+          setProfile(p);
+          setTargetIsPrivate(p.is_private ?? false);
+        }
         if (h) setHikes(h);
 
         const [{ count: followers }, { count: following }] = await Promise.all([
-          supabase.from("follows").select("*", { count: "exact", head: true }).eq("following_id", id),
-          supabase.from("follows").select("*", { count: "exact", head: true }).eq("follower_id", id),
+          supabase.from("follows").select("*", { count: "exact", head: true }).eq("following_id", id).eq("status", "accepted"),
+          supabase.from("follows").select("*", { count: "exact", head: true }).eq("follower_id", id).eq("status", "accepted"),
         ]);
         setFollowerCount(followers || 0);
         setFollowingCount(following || 0);
 
         if (session) {
           const [{ data: f }, { data: b }] = await Promise.all([
-            supabase.from("follows").select("follower_id").eq("follower_id", session.user.id).eq("following_id", id).single(),
+            supabase.from("follows").select("status").eq("follower_id", session.user.id).eq("following_id", id).single(),
             supabase.from("blocks").select("id").eq("blocker_id", session.user.id).eq("blocked_id", id).single(),
           ]);
-          setIsFollowing(!!f);
+          setFollowStatus((f?.status as "accepted" | "pending") ?? null);
           setIsBlocked(!!b);
         }
         setLoading(false);
@@ -89,21 +100,24 @@ import { Feather } from "@expo/vector-icons";
     const toggleFollow = async () => {
       if (!session) return;
       setFollowLoading(true);
-      if (isFollowing) {
+      if (followStatus === "accepted" || followStatus === "pending") {
         await supabase.from("follows").delete().eq("follower_id", session.user.id).eq("following_id", id);
-        setIsFollowing(false);
-        setFollowerCount(c => Math.max(c - 1, 0));
+        if (followStatus === "accepted") setFollowerCount(c => Math.max(c - 1, 0));
+        setFollowStatus(null);
       } else {
-        await supabase.from("follows").insert({ follower_id: session.user.id, following_id: id });
-        setIsFollowing(true);
-        setFollowerCount(c => c + 1);
-        sendPushNotification({
-          targetUserId: id,
-          type: "follow",
-          title: "New follower",
-          body: `${myProfile?.full_name || "Someone"} started following you`,
-          data: { userId: session.user.id },
-        });
+        const status = targetIsPrivate ? "pending" : "accepted";
+        await supabase.from("follows").insert({ follower_id: session.user.id, following_id: id, status });
+        setFollowStatus(status);
+        if (status === "accepted") {
+          setFollowerCount(c => c + 1);
+          sendPushNotification({
+            targetUserId: id,
+            type: "follow",
+            title: "New follower",
+            body: `${myProfile?.full_name || "Someone"} started following you`,
+            data: { userId: session.user.id },
+          });
+        }
       }
       setFollowLoading(false);
     };
@@ -142,8 +156,17 @@ import { Feather } from "@expo/vector-icons";
     if (!profile) return <View style={[styles.container, styles.center]}><Text style={styles.emptyText}>User not found</Text></View>;
 
     const isOwnProfile = session?.user.id === id;
+    const isPrivateAndHidden = targetIsPrivate && followStatus !== "accepted" && !isOwnProfile;
     const totalMiles = hikes.reduce((s, h) => s + (h.distance_mi || 0), 0);
     const totalElev = hikes.reduce((s, h) => s + (h.elevation_ft || 0), 0);
+
+    const followBtnLabel =
+      followStatus === "accepted" ? "Following" :
+      followStatus === "pending" ? "Requested" :
+      targetIsPrivate ? "Request" : "Follow";
+    const followBtnIcon: React.ComponentProps<typeof Feather>["name"] =
+      followStatus === "accepted" ? "user-check" :
+      followStatus === "pending" ? "clock" : "user-plus";
 
     return (
       <View style={styles.container}>
@@ -151,7 +174,7 @@ import { Feather } from "@expo/vector-icons";
           <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}>
             <Feather name="chevron-left" size={28} color={Colors.text} />
           </Pressable>
-          <Text style={styles.headerTitle} numberOfLines={1}>{profile.full_name || "Profile"}</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>{profile.full_name || profile.username || "Profile"}</Text>
           {!isOwnProfile ? (
             <Pressable
               onPress={handleBlock}
@@ -175,14 +198,21 @@ import { Feather } from "@expo/vector-icons";
                   <Text style={styles.avatarText}>{getInitials(profile.full_name)}</Text>
                 </View>
               )}
+              {targetIsPrivate && (
+                <View style={styles.lockBadge}>
+                  <Feather name="lock" size={10} color="#fff" />
+                </View>
+              )}
             </View>
             <Text style={styles.name}>{profile.full_name || "Anonymous Hiker"}</Text>
+            {profile.username ? <Text style={styles.username}>@{profile.username}</Text> : null}
             {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
 
+            {/* Stats — always visible */}
             <View style={styles.statsRow}>
-              <View style={styles.statCell}><Text style={styles.statVal}>{hikes.length}</Text><Text style={styles.statLbl}>Hikes</Text></View>
-              <View style={styles.statCell}><Text style={styles.statVal}>{totalMiles.toFixed(0)}</Text><Text style={styles.statLbl}>Miles</Text></View>
-              <View style={styles.statCell}><Text style={styles.statVal}>{totalElev >= 1000 ? `${(totalElev / 1000).toFixed(1)}k` : totalElev}</Text><Text style={styles.statLbl}>Elev. ft</Text></View>
+              {!isPrivateAndHidden && <View style={styles.statCell}><Text style={styles.statVal}>{hikes.length}</Text><Text style={styles.statLbl}>Hikes</Text></View>}
+              {!isPrivateAndHidden && <View style={styles.statCell}><Text style={styles.statVal}>{totalMiles.toFixed(0)}</Text><Text style={styles.statLbl}>Miles</Text></View>}
+              {!isPrivateAndHidden && <View style={styles.statCell}><Text style={styles.statVal}>{totalElev >= 1000 ? `${(totalElev / 1000).toFixed(1)}k` : totalElev}</Text><Text style={styles.statLbl}>Elev. ft</Text></View>}
               <View style={styles.statCell}><Text style={styles.statVal}>{followerCount}</Text><Text style={styles.statLbl}>Followers</Text></View>
               <View style={styles.statCell}><Text style={styles.statVal}>{followingCount}</Text><Text style={styles.statLbl}>Following</Text></View>
             </View>
@@ -192,12 +222,19 @@ import { Feather } from "@expo/vector-icons";
                 <Pressable
                   onPress={toggleFollow}
                   disabled={followLoading}
-                  style={({ pressed }) => [styles.followBtn, isFollowing && styles.followingBtn, { opacity: pressed || followLoading ? 0.7 : 1 }]}
+                  style={({ pressed }) => [
+                    styles.followBtn,
+                    (followStatus === "accepted" || followStatus === "pending") && styles.followingBtn,
+                    { opacity: pressed || followLoading ? 0.7 : 1 },
+                  ]}
                 >
-                  <Feather name={isFollowing ? "user-check" : "user-plus"} size={15} color={isFollowing ? Colors.text3 : "#fff"} />
-                  <Text style={[styles.followBtnText, isFollowing && styles.followingBtnText]}>
-                    {isFollowing ? "Following" : "Follow"}
-                  </Text>
+                  {followLoading
+                    ? <ActivityIndicator size="small" color={followStatus ? Colors.text3 : "#fff"} />
+                    : <>
+                        <Feather name={followBtnIcon} size={15} color={followStatus ? Colors.text3 : "#fff"} />
+                        <Text style={[styles.followBtnText, followStatus && styles.followingBtnText]}>{followBtnLabel}</Text>
+                      </>
+                  }
                 </Pressable>
                 <Pressable
                   onPress={handleBlock}
@@ -220,35 +257,51 @@ import { Feather } from "@expo/vector-icons";
             )}
           </View>
 
-          <Text style={styles.sectionLabel}>Hikes ({hikes.length})</Text>
-
-          {hikes.length === 0 ? (
-            <View style={styles.empty}>
-              <Feather name="map" size={32} color={Colors.text3} />
-              <Text style={styles.emptyText}>No hikes logged yet</Text>
+          {/* Private wall */}
+          {isPrivateAndHidden ? (
+            <View style={styles.privateWall}>
+              <Feather name="lock" size={36} color={Colors.text3} />
+              <Text style={styles.privateTitle}>This account is private</Text>
+              <Text style={styles.privateBody}>
+                {followStatus === "pending"
+                  ? "Your request is pending. Once approved, you'll be able to see their hikes."
+                  : "Request to follow to see their hikes and activity."}
+              </Text>
             </View>
           ) : (
-            hikes.map(hike => {
-              const dc = getDiffColor(hike.difficulty);
-              return (
-                <View key={hike.id} style={styles.hikeItem}>
-                  <View style={styles.hikeIcon}><Feather name="trending-up" size={16} color={Colors.green} /></View>
-                  <View style={styles.hikeInfo}>
-                    <Text style={styles.hikeName} numberOfLines={1}>{hike.trail_name}</Text>
-                    <Text style={styles.hikeMeta}>{formatDistance(hike.distance_mi, distanceUnit)} · {formatElevation(hike.elevation_ft, distanceUnit)} · {formatDate(hike.date)}</Text>
-                  </View>
-                  <View style={styles.hikeRight}>
-                    {hike.overall_score > 0 && (
-                      <View style={styles.hikeRating}>
-                        <Feather name="star" size={11} color={Colors.amber2} />
-                        <Text style={styles.hikeRatingText}>{hike.overall_score.toFixed(1)}</Text>
-                      </View>
-                    )}
-                    <View style={[styles.diffDot, { backgroundColor: dc }]} />
-                  </View>
+            <>
+              <Text style={styles.sectionLabel}>Hikes ({hikes.length})</Text>
+              {hikes.length === 0 ? (
+                <View style={styles.empty}>
+                  <Feather name="map" size={32} color={Colors.text3} />
+                  <Text style={styles.emptyText}>No hikes logged yet</Text>
                 </View>
-              );
-            })
+              ) : (
+                hikes.map(hike => {
+                  const dc = getDiffColor(hike.difficulty);
+                  return (
+                    <View key={hike.id} style={styles.hikeItem}>
+                      <View style={styles.hikeIcon}><Feather name="trending-up" size={16} color={Colors.green} /></View>
+                      <View style={styles.hikeInfo}>
+                        <Text style={styles.hikeName} numberOfLines={1}>{hike.trail_name}</Text>
+                        <Text style={styles.hikeMeta}>
+                          {hike.distance_mi != null ? formatDistance(hike.distance_mi, distanceUnit) : "—"} · {hike.elevation_ft != null ? formatElevation(hike.elevation_ft, distanceUnit) : "—"} · {formatDate(hike.date)}
+                        </Text>
+                      </View>
+                      <View style={styles.hikeRight}>
+                        {hike.overall_score > 0 && (
+                          <View style={styles.hikeRating}>
+                            <Feather name="star" size={11} color={Colors.amber2} />
+                            <Text style={styles.hikeRatingText}>{hike.overall_score.toFixed(1)}</Text>
+                          </View>
+                        )}
+                        <View style={[styles.diffDot, { backgroundColor: dc }]} />
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </>
           )}
         </ScrollView>
       </View>
@@ -263,18 +316,20 @@ import { Feather } from "@expo/vector-icons";
     headerTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text, flex: 1, textAlign: "center" },
     moreBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
     profileTop: { alignItems: "center", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20 },
-    avatarWrap: { marginBottom: 12 },
+    avatarWrap: { marginBottom: 12, position: "relative" },
     avatarImg: { width: 74, height: 74, borderRadius: 37, borderWidth: 2.5, borderColor: Colors.green },
     avatarFallback: { width: 74, height: 74, borderRadius: 37, backgroundColor: Colors.surface2, borderWidth: 2.5, borderColor: Colors.green, alignItems: "center", justifyContent: "center" },
     avatarText: { fontFamily: "Inter_700Bold", fontSize: 28, color: Colors.accent },
-    name: { fontFamily: "Inter_700Bold", fontSize: 22, color: Colors.text, marginBottom: 4 },
+    lockBadge: { position: "absolute", bottom: 0, right: 0, width: 20, height: 20, borderRadius: 10, backgroundColor: Colors.text3, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: Colors.bg },
+    name: { fontFamily: "Inter_700Bold", fontSize: 22, color: Colors.text, marginBottom: 2 },
+    username: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, marginBottom: 4 },
     bio: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, textAlign: "center", marginBottom: 16, paddingHorizontal: 20 },
     statsRow: { flexDirection: "row", width: "100%", borderRadius: 12, overflow: "hidden", gap: 1, backgroundColor: Colors.border, marginBottom: 16 },
     statCell: { flex: 1, backgroundColor: Colors.bg3, paddingVertical: 12, alignItems: "center" },
     statVal: { fontFamily: "Inter_700Bold", fontSize: 16, color: Colors.accent },
     statLbl: { fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.text3, textTransform: "uppercase", letterSpacing: 0.3, marginTop: 2 },
     actionRow: { flexDirection: "row", gap: 10, alignItems: "center" },
-    followBtn: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 10, paddingHorizontal: 24, borderRadius: 20, backgroundColor: Colors.green2 },
+    followBtn: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 10, paddingHorizontal: 24, borderRadius: 20, backgroundColor: Colors.green2, minWidth: 110, justifyContent: "center" },
     followingBtn: { backgroundColor: "transparent", borderWidth: 1, borderColor: Colors.border2 },
     followBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: "#fff" },
     followingBtnText: { color: Colors.text3 },
@@ -284,6 +339,9 @@ import { Feather } from "@expo/vector-icons";
     blockedBtnText: { color: Colors.red },
     blockedBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 14, padding: 12, backgroundColor: "rgba(196,96,96,0.08)", borderRadius: 10, borderWidth: 1, borderColor: "rgba(196,96,96,0.3)" },
     blockedBannerText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.red, lineHeight: 18 },
+    privateWall: { alignItems: "center", paddingTop: 48, paddingHorizontal: 40, gap: 12 },
+    privateTitle: { fontFamily: "Inter_600SemiBold", fontSize: 17, color: Colors.text2 },
+    privateBody: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3, textAlign: "center", lineHeight: 20 },
     sectionLabel: { fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: Colors.text3, paddingHorizontal: 20, paddingBottom: 10, paddingTop: 4, fontFamily: "Inter_500Medium" },
     empty: { alignItems: "center", paddingTop: 40, gap: 10 },
     emptyText: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3 },
@@ -297,4 +355,3 @@ import { Feather } from "@expo/vector-icons";
     hikeRatingText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.amber2 },
     diffDot: { width: 8, height: 8, borderRadius: 4 },
   });
-  

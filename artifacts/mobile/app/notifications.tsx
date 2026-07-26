@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Platform,
   Pressable,
   RefreshControl,
@@ -24,6 +25,13 @@ type Notif = {
   time: string;
 };
 
+type FollowRequest = {
+  follower_id: string;
+  created_at: string;
+  full_name: string | null;
+  avatar_url: string | null;
+};
+
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
@@ -43,8 +51,25 @@ export default function NotificationsScreen() {
   const { session, profile } = useAuth();
 
   const [notifs, setNotifs] = useState<Notif[]>([]);
+  const [followRequests, setFollowRequests] = useState<FollowRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const acceptRequest = async (followerId: string) => {
+    await supabase.from("follows")
+      .update({ status: "accepted" })
+      .eq("follower_id", followerId)
+      .eq("following_id", session!.user.id);
+    setFollowRequests(prev => prev.filter(r => r.follower_id !== followerId));
+  };
+
+  const declineRequest = async (followerId: string) => {
+    await supabase.from("follows")
+      .delete()
+      .eq("follower_id", followerId)
+      .eq("following_id", session!.user.id);
+    setFollowRequests(prev => prev.filter(r => r.follower_id !== followerId));
+  };
 
   const fetchNotifs = async () => {
     if (!session) { setLoading(false); return; }
@@ -96,11 +121,12 @@ export default function NotificationsScreen() {
       }
     }
 
-    // 2. New followers
+    // 2. New followers (accepted only)
     const { data: followers } = await supabase
       .from("follows")
       .select("follower_id, created_at, profiles(full_name)")
       .eq("following_id", session.user.id)
+      .eq("status", "accepted")
       .order("created_at", { ascending: false })
       .limit(10);
 
@@ -115,6 +141,23 @@ export default function NotificationsScreen() {
           time: timeAgo(f.created_at),
         });
       });
+    }
+
+    // Fetch pending follow requests (always, regardless of notif prefs)
+    const { data: requests } = await supabase
+      .from("follows")
+      .select("follower_id, created_at, profiles(full_name, avatar_url)")
+      .eq("following_id", session.user.id)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false });
+
+    if (requests) {
+      setFollowRequests(requests.map((r: any) => ({
+        follower_id: r.follower_id,
+        created_at: r.created_at,
+        full_name: r.profiles?.full_name ?? null,
+        avatar_url: r.profiles?.avatar_url ?? null,
+      })));
     }
 
     // 3. Comments on my hikes
@@ -197,7 +240,40 @@ export default function NotificationsScreen() {
           contentContainerStyle={styles.content}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchNotifs(); }} tintColor={Colors.accent} />}
         >
-          {notifs.length === 0 ? (
+          {/* Follow Requests section */}
+          {followRequests.length > 0 && (
+            <>
+              <Text style={styles.sectionLabel}>Follow Requests ({followRequests.length})</Text>
+              {followRequests.map(req => (
+                <View key={req.follower_id} style={styles.requestItem}>
+                  <View style={styles.requestAvatar}>
+                    {req.avatar_url
+                      ? <Image source={{ uri: req.avatar_url }} style={styles.requestAvatarImg} />
+                      : <Text style={styles.requestAvatarText}>{(req.full_name?.[0] ?? "?").toUpperCase()}</Text>
+                    }
+                  </View>
+                  <Text style={styles.requestName} numberOfLines={1}>{req.full_name || "Someone"}</Text>
+                  <View style={styles.requestActions}>
+                    <Pressable
+                      onPress={() => acceptRequest(req.follower_id)}
+                      style={({ pressed }) => [styles.acceptBtn, { opacity: pressed ? 0.7 : 1 }]}
+                    >
+                      <Text style={styles.acceptBtnText}>Accept</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => declineRequest(req.follower_id)}
+                      style={({ pressed }) => [styles.declineBtn, { opacity: pressed ? 0.7 : 1 }]}
+                    >
+                      <Text style={styles.declineBtnText}>Decline</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+              {notifs.length > 0 && <Text style={styles.sectionLabel}>Recent Activity</Text>}
+            </>
+          )}
+
+          {notifs.length === 0 && followRequests.length === 0 ? (
             <View style={styles.empty}>
               <Feather name="bell" size={40} color={Colors.text3} />
               <Text style={styles.emptyTitle}>No notifications yet</Text>
@@ -241,4 +317,15 @@ const styles = StyleSheet.create({
   textWrap: { flex: 1, gap: 3 },
   notifText: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text, lineHeight: 20 },
   notifTime: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3 },
+  sectionLabel: { fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: Colors.text3, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8, fontFamily: "Inter_500Medium" },
+  requestItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  requestAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surface2, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  requestAvatarImg: { width: 40, height: 40, borderRadius: 20 },
+  requestAvatarText: { fontFamily: "Inter_700Bold", fontSize: 16, color: Colors.accent },
+  requestName: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text },
+  requestActions: { flexDirection: "row", gap: 8 },
+  acceptBtn: { paddingVertical: 7, paddingHorizontal: 16, borderRadius: 16, backgroundColor: Colors.green2 },
+  acceptBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "#fff" },
+  declineBtn: { paddingVertical: 7, paddingHorizontal: 16, borderRadius: 16, borderWidth: 1, borderColor: Colors.border2 },
+  declineBtnText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.text3 },
 });

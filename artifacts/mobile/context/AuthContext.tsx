@@ -16,6 +16,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     notif_follows: boolean
     notif_milestones: boolean
     notif_comments: boolean
+    is_private: boolean
   }
 
   type AuthContextType = {
