@@ -91,12 +91,17 @@ import { Feather } from "@expo/vector-icons";
         setFollowingCount(following || 0);
 
         if (session) {
+          // RLS on `blocks` is `auth.uid() = blocker_id`, so this can only ever
+          // answer "have I blocked them". The reverse — whether they blocked me —
+          // is deliberately unreadable by the client and would need a
+          // SECURITY DEFINER RPC to surface. Until then, a profile that blocked
+          // you renders as an ordinary empty profile.
           const [{ data: f }, { data: b }] = await Promise.all([
             supabase.from("follows").select("status").eq("follower_id", session.user.id).eq("following_id", id).single(),
-            supabase.from("blocks").select("id").eq("blocker_id", session.user.id).eq("blocked_id", id).single(),
+            supabase.from("blocks").select("blocker_id").eq("blocker_id", session.user.id).eq("blocked_id", id),
           ]);
           setFollowStatus((f?.status as "accepted" | "pending") ?? null);
-          setIsBlocked(!!b);
+          setIsBlocked((b || []).length > 0);
         }
         setLoading(false);
       };
@@ -163,6 +168,9 @@ import { Feather } from "@expo/vector-icons";
 
     const isOwnProfile = session?.user.id === id;
     const isPrivateAndHidden = targetIsPrivate && followStatus !== "accepted" && !isOwnProfile;
+    // Everything RLS will refuse to return for reasons we can actually detect:
+    // a block we created, or a private account without an accepted follow.
+    const contentHidden = !isOwnProfile && (isBlocked || isPrivateAndHidden);
     const totalMiles = hikes.reduce((s, h) => s + (h.distance_mi || 0), 0);
     const totalElev = hikes.reduce((s, h) => s + (h.elevation_ft || 0), 0);
     // Totals sum in storage units (miles/feet), then convert once for display.
@@ -219,32 +227,35 @@ import { Feather } from "@expo/vector-icons";
 
             {/* Stats — always visible */}
             <View style={styles.statsRow}>
-              {!isPrivateAndHidden && <View style={styles.statCell}><Text style={styles.statVal}>{hikes.length}</Text><Text style={styles.statLbl}>Hikes</Text></View>}
-              {!isPrivateAndHidden && <View style={styles.statCell}><Text style={styles.statVal}>{totalDistanceDisplay.toFixed(0)}</Text><Text style={styles.statLbl}>{distanceUnit === "metric" ? "Km" : "Miles"}</Text></View>}
-              {!isPrivateAndHidden && <View style={styles.statCell}><Text style={styles.statVal}>{totalElevDisplay >= 1000 ? `${(totalElevDisplay / 1000).toFixed(1)}k` : Math.round(totalElevDisplay)}</Text><Text style={styles.statLbl}>Elev. {elevationUnitLabel(distanceUnit)}</Text></View>}
+              {!contentHidden && <View style={styles.statCell}><Text style={styles.statVal}>{hikes.length}</Text><Text style={styles.statLbl}>Hikes</Text></View>}
+              {!contentHidden && <View style={styles.statCell}><Text style={styles.statVal}>{totalDistanceDisplay.toFixed(0)}</Text><Text style={styles.statLbl}>{distanceUnit === "metric" ? "Km" : "Miles"}</Text></View>}
+              {!contentHidden && <View style={styles.statCell}><Text style={styles.statVal}>{totalElevDisplay >= 1000 ? `${(totalElevDisplay / 1000).toFixed(1)}k` : Math.round(totalElevDisplay)}</Text><Text style={styles.statLbl}>Elev. {elevationUnitLabel(distanceUnit)}</Text></View>}
               <View style={styles.statCell}><Text style={styles.statVal}>{followerCount}</Text><Text style={styles.statLbl}>Followers</Text></View>
               <View style={styles.statCell}><Text style={styles.statVal}>{followingCount}</Text><Text style={styles.statLbl}>Following</Text></View>
             </View>
 
             {!isOwnProfile && (
               <View style={styles.actionRow}>
-                <Pressable
-                  onPress={toggleFollow}
-                  disabled={followLoading}
-                  style={({ pressed }) => [
-                    styles.followBtn,
-                    (followStatus === "accepted" || followStatus === "pending") && styles.followingBtn,
-                    { opacity: pressed || followLoading ? 0.7 : 1 },
-                  ]}
-                >
-                  {followLoading
-                    ? <ActivityIndicator size="small" color={followStatus ? Colors.text3 : "#fff"} />
-                    : <>
-                        <Feather name={followBtnIcon} size={15} color={followStatus ? Colors.text3 : "#fff"} />
-                        <Text style={[styles.followBtnText, followStatus && styles.followingBtnText]}>{followBtnLabel}</Text>
-                      </>
-                  }
-                </Pressable>
+                {/* Following someone you've blocked is meaningless. */}
+                {!isBlocked && (
+                  <Pressable
+                    onPress={toggleFollow}
+                    disabled={followLoading}
+                    style={({ pressed }) => [
+                      styles.followBtn,
+                      (followStatus === "accepted" || followStatus === "pending") && styles.followingBtn,
+                      { opacity: pressed || followLoading ? 0.7 : 1 },
+                    ]}
+                  >
+                    {followLoading
+                      ? <ActivityIndicator size="small" color={followStatus ? Colors.text3 : "#fff"} />
+                      : <>
+                          <Feather name={followBtnIcon} size={15} color={followStatus ? Colors.text3 : "#fff"} />
+                          <Text style={[styles.followBtnText, followStatus && styles.followingBtnText]}>{followBtnLabel}</Text>
+                        </>
+                    }
+                  </Pressable>
+                )}
                 <Pressable
                   onPress={handleBlock}
                   disabled={blockLoading}
@@ -266,15 +277,19 @@ import { Feather } from "@expo/vector-icons";
             )}
           </View>
 
-          {/* Private wall */}
-          {isPrivateAndHidden ? (
+          {/* Wall shown whenever the viewer can't see this user's content */}
+          {contentHidden ? (
             <View style={styles.privateWall}>
-              <Feather name="lock" size={36} color={Colors.text3} />
-              <Text style={styles.privateTitle}>This account is private</Text>
+              <Feather name={isBlocked ? "slash" : "lock"} size={36} color={Colors.text3} />
+              <Text style={styles.privateTitle}>
+                {isBlocked ? "You've blocked this account" : "This account is private"}
+              </Text>
               <Text style={styles.privateBody}>
-                {followStatus === "pending"
-                  ? "Your request is pending. Once approved, you'll be able to see their hikes."
-                  : "Request to follow to see their hikes and activity."}
+                {isBlocked
+                  ? "Unblock them to see their hikes and activity again."
+                  : followStatus === "pending"
+                    ? "Your request is pending. Once approved, you'll be able to see their hikes."
+                    : "Request to follow to see their hikes and activity."}
               </Text>
             </View>
           ) : (

@@ -4,6 +4,7 @@ import { Feather } from "@expo/vector-icons";
   import React, { useCallback, useEffect, useRef, useState } from "react";
   import {
     ActivityIndicator,
+    Alert,
     FlatList,
     Modal,
     Platform,
@@ -22,6 +23,7 @@ import { Feather } from "@expo/vector-icons";
   import RNMapView, { Marker as RNMarker, Callout as RNCallout } from "@/lib/maps";
   import { formatDistance, formatElevation } from "@/lib/units";
   import { formatRatingDisplay } from "@/lib/ratings";
+  import { sendPushNotification } from "@/lib/notifications";
 
   const PAGE_SIZE = 20;
   const MAP_FETCH_LIMIT = 300;
@@ -41,7 +43,10 @@ import { Feather } from "@expo/vector-icons";
 
   type UserProfile = {
     id: string; full_name: string | null; username: string | null; bio: string | null;
+    is_private: boolean;
   };
+
+  type FollowState = "accepted" | "pending";
 
   const DIFFICULTY_FILTERS = ["All", "Easy", "Moderate", "Hard", "Expert"];
   const SORT_OPTIONS = ["Top Rated", "Shortest", "Longest", "Most Elevation", "Least Elevation"];
@@ -65,17 +70,19 @@ import { Feather } from "@expo/vector-icons";
   }
 
   function PeopleTab() {
-    const { session } = useAuth();
+    const { session, profile } = useAuth();
     const router = useRouter();
     const [search, setSearch] = useState("");
     const [users, setUsers] = useState<UserProfile[]>([]);
-    const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
+    const [followStatus, setFollowStatus] = useState<Record<string, FollowState>>({});
     const [loading, setLoading] = useState(false);
 
     const fetchUsers = async (query: string) => {
       setLoading(true);
       let req = supabase.from("profiles").select("*").neq("id", session?.user.id || "").limit(20);
-      if (query.trim()) req = req.ilike("full_name", `%${query}%`);
+      // Search name or username — username is the login identity and the handle
+      // shown on profiles, and accounts with no full_name are only findable this way.
+      if (query.trim()) req = req.or(`full_name.ilike.%${query}%,username.ilike.%${query}%`);
       const { data } = await req;
       if (data) setUsers(data);
       setLoading(false);
@@ -83,8 +90,16 @@ import { Feather } from "@expo/vector-icons";
 
     const fetchFollowing = async () => {
       if (!session) return;
-      const { data } = await supabase.from("follows").select("following_id").eq("follower_id", session.user.id);
-      if (data) setFollowingIds(new Set(data.map((f: any) => f.following_id)));
+      // `status` matters: a pending request to a private account is not a follow.
+      const { data } = await supabase
+        .from("follows")
+        .select("following_id, status")
+        .eq("follower_id", session.user.id);
+      if (data) {
+        const next: Record<string, FollowState> = {};
+        data.forEach((f: any) => { next[f.following_id] = f.status; });
+        setFollowStatus(next);
+      }
     };
 
     useEffect(() => { fetchUsers(""); fetchFollowing(); }, []);
@@ -93,16 +108,45 @@ import { Feather } from "@expo/vector-icons";
       return () => clearTimeout(t);
     }, [search]);
 
-    const toggleFollow = async (userId: string) => {
+    const toggleFollow = async (user: UserProfile) => {
       if (!session) return;
-      const isFollowing = followingIds.has(userId);
-      if (isFollowing) {
-        await supabase.from("follows").delete().eq("follower_id", session.user.id).eq("following_id", userId);
-        setFollowingIds(prev => { const n = new Set(prev); n.delete(userId); return n; });
-      } else {
-        await supabase.from("follows").insert({ follower_id: session.user.id, following_id: userId });
-        setFollowingIds(prev => new Set([...prev, userId]));
+      if (followStatus[user.id]) {
+        const { error } = await supabase.from("follows").delete()
+          .eq("follower_id", session.user.id).eq("following_id", user.id);
+        if (error) { Alert.alert("Couldn't unfollow", error.message); return; }
+        setFollowStatus(prev => { const n = { ...prev }; delete n[user.id]; return n; });
+        return;
       }
+
+      // The follows WITH CHECK policy demands 'pending' for a private target and
+      // 'accepted' for a public one. The column default is 'accepted', so an
+      // insert that omits status is rejected outright for private accounts —
+      // which is why this has to be set explicitly rather than left to the default.
+      const status: FollowState = user.is_private ? "pending" : "accepted";
+      const { error } = await supabase.from("follows").insert({
+        follower_id: session.user.id,
+        following_id: user.id,
+        status,
+      });
+      if (error) { Alert.alert("Couldn't follow", error.message); return; }
+      setFollowStatus(prev => ({ ...prev, [user.id]: status }));
+
+      if (status === "accepted") {
+        sendPushNotification({
+          targetUserId: user.id,
+          type: "follow",
+          title: "New follower",
+          body: `${profile?.full_name || "Someone"} started following you`,
+          data: { userId: session.user.id },
+        });
+      }
+    };
+
+    const followLabel = (user: UserProfile) => {
+      const status = followStatus[user.id];
+      if (status === "accepted") return "Following";
+      if (status === "pending") return "Requested";
+      return user.is_private ? "Request" : "Follow";
     };
 
     return (
@@ -120,7 +164,7 @@ import { Feather } from "@expo/vector-icons";
             {users.length === 0 ? (
               <View style={styles.center}><Text style={styles.emptyText}>No users found</Text></View>
             ) : users.map((user, idx) => {
-              const isFollowing = followingIds.has(user.id);
+              const isFollowing = !!followStatus[user.id];
               return (
                 <Pressable key={user.id} style={({ pressed }) => [styles.personRow, { opacity: pressed ? 0.8 : 1 }]} onPress={() => router.push({ pathname: "/user-profile", params: { id: user.id } })}>
                   <View style={[styles.personAvatar, { backgroundColor: AVATAR_COLORS[idx % AVATAR_COLORS.length] }]}>
@@ -130,8 +174,8 @@ import { Feather } from "@expo/vector-icons";
                     <Text style={styles.personName}>{user.full_name || "Anonymous Hiker"}</Text>
                     {user.bio ? <Text style={styles.personBio} numberOfLines={1}>{user.bio}</Text> : null}
                   </View>
-                  <Pressable onPress={(e) => { e.stopPropagation?.(); toggleFollow(user.id); }} style={({ pressed }) => [styles.followBtn, isFollowing && styles.followingBtn, { opacity: pressed ? 0.7 : 1 }]}>
-                    <Text style={[styles.followBtnText, isFollowing && styles.followingBtnText]}>{isFollowing ? "Following" : "Follow"}</Text>
+                  <Pressable onPress={(e) => { e.stopPropagation?.(); toggleFollow(user); }} style={({ pressed }) => [styles.followBtn, isFollowing && styles.followingBtn, { opacity: pressed ? 0.7 : 1 }]}>
+                    <Text style={[styles.followBtnText, isFollowing && styles.followingBtnText]}>{followLabel(user)}</Text>
                   </Pressable>
                 </Pressable>
               );

@@ -27,6 +27,7 @@ type Trail = {
   distance_mi: number; elevation_ft: number; difficulty: string;
   rating: number; tags: string[]; description: string;
   lat: number | null; lng: number | null;
+  attribution: string | null; license: string | null; source_url: string | null;
 };
 
 type Weather = {
@@ -81,7 +82,13 @@ function MapView({ lat, lng, name }: { lat: number; lng: number; name: string })
       );
     }
     const WebView = require("react-native-webview").WebView;
-    const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>*{margin:0;padding:0}#map{width:100vw;height:100vh;background:#1a2a1a}</style></head><body><div id="map"></div><script>var map=L.map('map',{zoomControl:false,attributionControl:false}).setView([${lat},${lng}],13);L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17}).addTo(map);var icon=L.divIcon({html:'<div style="background:#6db87a;width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5)"></div>',iconSize:[14,14],iconAnchor:[7,7],className:''});L.marker([${lat},${lng}],{icon:icon}).addTo(map);<\/script><\/body><\/html>`;
+    // OpenTopoMap's terms (and OSM's ODbL underneath it) require visible
+    // attribution, so attributionControl stays on and the tile layer carries
+    // the credit line. Do not disable it again.
+    const TILE_ATTRIBUTION =
+      'map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | ' +
+      'style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)';
+    const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>*{margin:0;padding:0}#map{width:100vw;height:100vh;background:#1a2a1a}.leaflet-control-attribution{font-size:9px;background:rgba(0,0,0,0.55);color:#e8e8e8}.leaflet-control-attribution a{color:#9ecfa8}</style></head><body><div id="map"></div><script>var map=L.map('map',{zoomControl:false}).setView([${lat},${lng}],13);L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'${TILE_ATTRIBUTION}'}).addTo(map);var icon=L.divIcon({html:'<div style="background:#6db87a;width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5)"></div>',iconSize:[14,14],iconAnchor:[7,7],className:''});L.marker([${lat},${lng}],{icon:icon}).addTo(map);<\/script><\/body><\/html>`;
     return (
       <View style={mapStyles.container}>
         <WebView source={{ html }} style={mapStyles.webview} scrollEnabled={false} showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator={false} />
@@ -256,6 +263,22 @@ export default function TrailDetailScreen() {
           </View>
         )}
 
+        {/* Source credit for catalogue data that carries an attribution
+            requirement (e.g. the USGS-ingested trails). */}
+        {(trail.attribution || trail.license) && (
+          <View style={styles.section}>
+            <Text style={styles.sourceCredit}>
+              {trail.attribution || "Trail data"}
+              {trail.license ? ` · ${trail.license}` : ""}
+            </Text>
+            {trail.source_url ? (
+              <Pressable onPress={() => Linking.openURL(trail.source_url!)}>
+                <Text style={styles.sourceLink}>View source</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        )}
+
         {trail.tags && trail.tags.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Features</Text>
@@ -294,6 +317,8 @@ const styles = StyleSheet.create({
   center: { alignItems: "center", justifyContent: "center" },
   header: { paddingHorizontal: 20, paddingBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   backBtn: { padding: 2, marginLeft: -6 },
+  sourceCredit: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.text3, lineHeight: 16 },
+  sourceLink: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.accent, marginTop: 4 },
   headerTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text, flex: 1, textAlign: "center" },
   hero: { marginHorizontal: 16, marginBottom: 4, backgroundColor: Colors.bg3, borderRadius: 16, borderWidth: 1, borderColor: Colors.border, padding: 20 },
   diffBadgeLarge: { alignSelf: "flex-start", paddingVertical: 5, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, marginBottom: 12 },
