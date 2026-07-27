@@ -15,10 +15,12 @@ Core tables: `profiles`, `trails`, `hikes`, `comments`, `likes`, `follows`, `hik
 
 Views: `trail_rating_stats` (avg_rating/rating_count computed from `hikes.overall_score`, not the old static `trails.rating`), `trails_with_ratings` (all of `trails` plus `effective_rating`/`rating_count` — Discover's "Top Rated" sort uses this).
 
-RPC functions (all `SECURITY DEFINER`, narrowly scoped, callable by `anon`+`authenticated`):
-- `is_username_available(check_username text) returns boolean` — used at signup
-- `get_email_for_username(lookup_username text) returns text` — lets login accept a username instead of just email (resolve to email client-side, then call `signInWithPassword` normally)
-- `can_view_user_content(content_owner_id uuid) returns boolean` — the private-account visibility check, used inside RLS policies on hikes/comments/likes/hike_photos/dim_ratings
+Database functions (narrowly scoped, callable by `anon`+`authenticated`):
+- `is_username_available(check_username text) returns boolean` — `SECURITY DEFINER`; used at signup. Compares `lower(username)`, matching the `profiles_username_lower_key` unique index.
+- `get_email_for_username(lookup_username text) returns text` — `SECURITY DEFINER`; lets login accept a username instead of just email (resolve to email client-side, then call `signInWithPassword` normally)
+- `is_blocked_by(other_user_id uuid) returns boolean` — `SECURITY DEFINER`; true when `other_user_id` has blocked the caller. Exists because RLS on `blocks` is `auth.uid() = blocker_id`, so a plain select can only ever answer "have *I* blocked them" — without this RPC a profile that blocked you is indistinguishable from an empty one. Used by `user-profile.tsx`. **`hike-detail.tsx` does not use it yet**, so its comment filter still only hides comments from people the viewer blocked, not the reverse.
+- `can_view_user_content(content_owner_id uuid) returns boolean` — **`SECURITY INVOKER`**, not definer. The single visibility gate used inside RLS policies; see the security model section below.
+- `find_similar_trails(search_name text)` — `SECURITY INVOKER`; trigram fuzzy match backing the "can't find your trail" duplicate check
 
 Edge functions (Deno, deployed):
 - `delete-account` — verify_jwt true; deletes the caller's storage files then calls `auth.admin.deleteUser`, which cascades through every table via FK constraints back to `auth.users`

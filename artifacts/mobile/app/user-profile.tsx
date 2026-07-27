@@ -69,6 +69,7 @@ import { Feather } from "@expo/vector-icons";
     const [loading, setLoading] = useState(true);
     const [followLoading, setFollowLoading] = useState(false);
     const [isBlocked, setIsBlocked] = useState(false);
+    const [blockedByThem, setBlockedByThem] = useState(false);
     const [blockLoading, setBlockLoading] = useState(false);
 
     useEffect(() => {
@@ -91,17 +92,22 @@ import { Feather } from "@expo/vector-icons";
         setFollowingCount(following || 0);
 
         if (session) {
-          // RLS on `blocks` is `auth.uid() = blocker_id`, so this can only ever
-          // answer "have I blocked them". The reverse — whether they blocked me —
-          // is deliberately unreadable by the client and would need a
-          // SECURITY DEFINER RPC to surface. Until then, a profile that blocked
-          // you renders as an ordinary empty profile.
-          const [{ data: f }, { data: b }] = await Promise.all([
+          // Two directions, two mechanisms. RLS on `blocks` is
+          // `auth.uid() = blocker_id`, so a direct select can only answer "have I
+          // blocked them". The reverse is deliberately unreadable, so it comes
+          // from the `is_blocked_by` SECURITY DEFINER RPC, which returns just the
+          // one boolean.
+          const [{ data: f }, { data: b }, { data: blockedBy, error: blockedByError }] = await Promise.all([
             supabase.from("follows").select("status").eq("follower_id", session.user.id).eq("following_id", id).single(),
             supabase.from("blocks").select("blocker_id").eq("blocker_id", session.user.id).eq("blocked_id", id),
+            supabase.rpc("is_blocked_by", { other_user_id: id }),
           ]);
           setFollowStatus((f?.status as "accepted" | "pending") ?? null);
           setIsBlocked((b || []).length > 0);
+          // Fail closed would hide profiles on a transient error; fail open just
+          // restores the previous (merely uninformative) empty-profile rendering.
+          if (blockedByError) console.warn("is_blocked_by failed", blockedByError.message);
+          setBlockedByThem(blockedBy === true);
         }
         setLoading(false);
       };
@@ -168,9 +174,10 @@ import { Feather } from "@expo/vector-icons";
 
     const isOwnProfile = session?.user.id === id;
     const isPrivateAndHidden = targetIsPrivate && followStatus !== "accepted" && !isOwnProfile;
-    // Everything RLS will refuse to return for reasons we can actually detect:
-    // a block we created, or a private account without an accepted follow.
-    const contentHidden = !isOwnProfile && (isBlocked || isPrivateAndHidden);
+    // Everything RLS will refuse to return: a block in either direction, or a
+    // private account without an accepted follow.
+    const contentHidden = !isOwnProfile && (isBlocked || blockedByThem || isPrivateAndHidden);
+    const anyBlock = isBlocked || blockedByThem;
     const totalMiles = hikes.reduce((s, h) => s + (h.distance_mi || 0), 0);
     const totalElev = hikes.reduce((s, h) => s + (h.elevation_ft || 0), 0);
     // Totals sum in storage units (miles/feet), then convert once for display.
@@ -236,8 +243,8 @@ import { Feather } from "@expo/vector-icons";
 
             {!isOwnProfile && (
               <View style={styles.actionRow}>
-                {/* Following someone you've blocked is meaningless. */}
-                {!isBlocked && (
+                {/* Following is meaningless while a block is in place either way. */}
+                {!anyBlock && (
                   <Pressable
                     onPress={toggleFollow}
                     disabled={followLoading}
@@ -280,16 +287,22 @@ import { Feather } from "@expo/vector-icons";
           {/* Wall shown whenever the viewer can't see this user's content */}
           {contentHidden ? (
             <View style={styles.privateWall}>
-              <Feather name={isBlocked ? "slash" : "lock"} size={36} color={Colors.text3} />
+              <Feather name={anyBlock ? "slash" : "lock"} size={36} color={Colors.text3} />
               <Text style={styles.privateTitle}>
-                {isBlocked ? "You've blocked this account" : "This account is private"}
+                {blockedByThem
+                  ? "This account is unavailable"
+                  : isBlocked
+                    ? "You've blocked this account"
+                    : "This account is private"}
               </Text>
               <Text style={styles.privateBody}>
-                {isBlocked
-                  ? "Unblock them to see their hikes and activity again."
-                  : followStatus === "pending"
-                    ? "Your request is pending. Once approved, you'll be able to see their hikes."
-                    : "Request to follow to see their hikes and activity."}
+                {blockedByThem
+                  ? "You can't view this profile's hikes or activity."
+                  : isBlocked
+                    ? "Unblock them to see their hikes and activity again."
+                    : followStatus === "pending"
+                      ? "Your request is pending. Once approved, you'll be able to see their hikes."
+                      : "Request to follow to see their hikes and activity."}
               </Text>
             </View>
           ) : (
