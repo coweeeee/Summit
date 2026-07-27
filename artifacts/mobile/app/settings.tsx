@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { USERNAME_RULE_HINT, isValidUsername, normalizeUsername } from "@/lib/username";
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
@@ -80,7 +81,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const router = useRouter();
-  const { profile, session, signOut, refreshProfile } = useAuth();
+  const { profile, session, signOut, refreshProfile, claimUsername } = useAuth();
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -143,6 +144,19 @@ export default function SettingsScreen() {
   const [units, setUnits] = useState<"imperial" | "metric">(
     profile?.distance_unit || "imperial"
   );
+
+  // Every control below is initialized from `profile`, which can still be
+  // loading when this screen mounts. Without this resync the switches would
+  // keep showing their fallback defaults while the database says otherwise.
+  useEffect(() => {
+    if (!profile) return;
+    setIsPrivate(profile.is_private);
+    setNotifLikes(profile.notif_likes);
+    setNotifFollows(profile.notif_follows);
+    setNotifMilestones(profile.notif_milestones);
+    setNotifComments(profile.notif_comments);
+    setUnits(profile.distance_unit);
+  }, [profile]);
 
   const handleToggleUnits = async () => {
     const next = units === "imperial" ? "metric" : "imperial";
@@ -216,13 +230,40 @@ export default function SettingsScreen() {
 
   const handleSaveProfile = async () => {
     if (!profile) return;
+
+    const nextUsername = normalizeUsername(editUsername);
+    const usernameChanged = nextUsername !== (profile.username ?? "");
+
+    // Validated before anything is written, so a rejected username can't leave
+    // a half-saved profile behind.
+    if (usernameChanged && !isValidUsername(nextUsername)) {
+      Alert.alert("Invalid username", USERNAME_RULE_HINT);
+      return;
+    }
+
     setSaveLoading(true);
+
+    // Username goes through claimUsername — the single validated write path,
+    // shared with signup. Name and bio carry no uniqueness rules and are
+    // written directly.
+    if (usernameChanged) {
+      const result = await claimUsername(nextUsername);
+      if (!result.ok) {
+        setSaveLoading(false);
+        if (result.conflict) {
+          Alert.alert("Username taken", "That username is already in use. Please choose another.");
+        } else if (result.invalid) {
+          Alert.alert("Invalid username", USERNAME_RULE_HINT);
+        }
+        return;
+      }
+    }
+
     const { error } = await supabase
       .from("profiles")
       .update({
         full_name: editName.trim(),
         bio: editBio.trim(),
-        username: editUsername.trim() || null,
       })
       .eq("id", profile.id);
     setSaveLoading(false);
@@ -498,6 +539,7 @@ export default function SettingsScreen() {
               autoCapitalize="none"
               autoCorrect={false}
             />
+            <Text style={styles.modalHint}>{USERNAME_RULE_HINT}</Text>
 
             <Text style={styles.modalLabel}>Bio</Text>
             <TextInput
@@ -587,6 +629,7 @@ const styles = StyleSheet.create({
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
     fontFamily: "Inter_400Regular", fontSize: 15, color: Colors.text,
   },
+  modalHint: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3, marginTop: 6 },
   modalTextarea: { minHeight: 100, textAlignVertical: "top" },
   charCount: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3, textAlign: "right", marginTop: 4 },
     deleteOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "flex-end" },

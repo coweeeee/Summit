@@ -16,15 +16,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
-
-const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/;
+import { USERNAME_RULE_HINT, isValidUsername, normalizeUsername } from "@/lib/username";
 
 type UsernameStatus = "idle" | "invalid" | "checking" | "available" | "taken" | "error";
 
 function UsernameHint({ status }: { status: UsernameStatus }) {
   if (status === "idle") return null;
   const copy: Record<Exclude<UsernameStatus, "idle">, string> = {
-    invalid: "3-20 characters: lowercase letters, numbers, underscores",
+    invalid: USERNAME_RULE_HINT,
     checking: "Checking availability...",
     available: "Username available",
     taken: "That username is taken",
@@ -48,11 +47,11 @@ export default function SignupScreen() {
   const [needsUsernameRetry, setNeedsUsernameRetry] = useState(false);
   const checkSeq = useRef(0);
 
-  const normalizedUsername = username.trim().toLowerCase();
+  const normalizedUsername = normalizeUsername(username);
 
   const checkUsernameAvailability = async (value: string): Promise<boolean> => {
     const seq = ++checkSeq.current;
-    if (!USERNAME_REGEX.test(value)) {
+    if (!isValidUsername(value)) {
       setUsernameStatus("invalid");
       return false;
     }
@@ -114,6 +113,8 @@ export default function SignupScreen() {
       router.replace("/(tabs)");
     } else if (result.conflict) {
       setUsernameStatus("taken");
+    } else if (result.invalid) {
+      setUsernameStatus("invalid");
     }
   };
 

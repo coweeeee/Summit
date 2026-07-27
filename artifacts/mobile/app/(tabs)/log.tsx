@@ -22,7 +22,16 @@ import Colors from "@/constants/colors";
 import { useHikes, DimRating } from "@/context/HikesContext";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
-import { formatDistance, formatElevation } from "@/lib/units";
+import {
+  distanceFromMiles,
+  distanceToMiles,
+  distanceUnitLabel,
+  elevationFromFeet,
+  elevationToFeet,
+  elevationUnitLabel,
+  formatDistance,
+  formatElevation,
+} from "@/lib/units";
 
 const DIFFICULTIES = ["Easy", "Moderate", "Hard", "Expert"];
 const DIMENSIONS = ["Scenery", "Views", "Trail Cond.", "Crowds", "Accessibility"];
@@ -141,8 +150,9 @@ export default function LogScreen() {
 
   const selectTrail = (trail: Trail) => {
     setSelectedTrail(trail);
-    setDistanceStr(trail.distance_mi > 0 ? trail.distance_mi.toString() : "");
-    setElevationStr(trail.elevation_ft > 0 ? trail.elevation_ft.toString() : "");
+    // Trail stats are stored in miles/feet; the inputs are in the user's units.
+    setDistanceStr(trail.distance_mi > 0 ? distanceFromMiles(trail.distance_mi, distanceUnit).toFixed(1) : "");
+    setElevationStr(trail.elevation_ft > 0 ? Math.round(elevationFromFeet(trail.elevation_ft, distanceUnit)).toString() : "");
     setDifficulty(trail.difficulty || "");
     setShowTrailSearch(false);
     setTrailQuery(""); setTrailResults([]);
@@ -281,8 +291,10 @@ export default function LogScreen() {
     const result = await addHike({
       trailName: selectedTrail.name,
       location: selectedTrail.location,
-      distanceMi: parseFloat(distanceStr) || 0,
-      elevationFt: parseInt(elevationStr) || 0,
+      // The inputs are in the user's units; storage is always miles/feet.
+      // `elevation_ft` is an integer column, so the converted value is rounded.
+      distanceMi: distanceToMiles(parseFloat(distanceStr) || 0, distanceUnit),
+      elevationFt: Math.round(elevationToFeet(parseInt(elevationStr) || 0, distanceUnit)),
       durationHr,
       difficulty,
       overallScore: overallScore || 0,
@@ -377,8 +389,8 @@ export default function LogScreen() {
             )}
 
             <View style={styles.row3}>
-              <View style={styles.col}><Text style={styles.fieldLabel}>Distance (mi)</Text><TextInput style={styles.input} placeholder="0.0" placeholderTextColor={Colors.text3} value={distanceStr} onChangeText={v => setDistanceStr(filterDecimal(v))} keyboardType="decimal-pad" maxLength={6} /></View>
-              <View style={styles.col}><Text style={styles.fieldLabel}>Elevation (ft)</Text><TextInput style={styles.input} placeholder="0" placeholderTextColor={Colors.text3} value={elevationStr} onChangeText={v => setElevationStr(filterInteger(v))} keyboardType="number-pad" maxLength={6} /></View>
+              <View style={styles.col}><Text style={styles.fieldLabel}>Distance ({distanceUnitLabel(distanceUnit)})</Text><TextInput style={styles.input} placeholder="0.0" placeholderTextColor={Colors.text3} value={distanceStr} onChangeText={v => setDistanceStr(filterDecimal(v))} keyboardType="decimal-pad" maxLength={6} /></View>
+              <View style={styles.col}><Text style={styles.fieldLabel}>Elevation ({elevationUnitLabel(distanceUnit)})</Text><TextInput style={styles.input} placeholder="0" placeholderTextColor={Colors.text3} value={elevationStr} onChangeText={v => setElevationStr(filterInteger(v))} keyboardType="number-pad" maxLength={6} /></View>
               <View style={styles.col}><Text style={styles.fieldLabel}>Duration (hr)</Text><TextInput style={[styles.input, skipDuration && styles.inputSkipped]} placeholder={skipDuration ? "—" : "0.0"} placeholderTextColor={Colors.text3} value={durationStr} onChangeText={v => setDurationStr(filterDecimal(v))} keyboardType="decimal-pad" maxLength={5} editable={!skipDuration} /></View>
             </View>
 

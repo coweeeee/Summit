@@ -20,7 +20,13 @@ import { Feather } from "@expo/vector-icons";
   import { useHikes } from "@/context/HikesContext";
   import { supabase } from "@/lib/supabase";
   import { BADGE_DEFINITIONS, isEarlyBirdStart } from "@/lib/badges";
-  import { formatDistance, formatElevation } from "@/lib/units";
+  import {
+    distanceFromMiles,
+    elevationFromFeet,
+    elevationUnitLabel,
+    formatDistance,
+    formatElevation,
+  } from "@/lib/units";
 
   type SavedTrail = { id: string; name: string; location: string; difficulty: string; rating: number; distance_mi: number; elevation_ft: number; };
   type FollowUser = { id: string; full_name: string | null; avatar_url: string | null; };
@@ -132,7 +138,7 @@ import { Feather } from "@expo/vector-icons";
     };
 
     const avatarUrl = profile?.avatar_url;
-    const elevLabel = distanceUnit === "metric" ? "Elev. m" : "Elev. ft";
+    const elevLabel = `Elev. ${elevationUnitLabel(distanceUnit)}`;
 
     return (
       <View style={styles.container}>
@@ -166,8 +172,8 @@ import { Feather } from "@expo/vector-icons";
 
             <View style={styles.statsRow}>
               <StatCell value={hikes.length.toString()} label="Hikes" />
-              <StatCell value={formatDistance(totalMiles, distanceUnit).replace(/ (mi|km)$/, "")} label={distanceUnit === "metric" ? "Km" : "Miles"} />
-              <StatCell value={formatElevation(totalElev, distanceUnit).replace(/ (ft|m)$/, "")} label={elevLabel} />
+              <StatCell value={distanceFromMiles(totalMiles, distanceUnit).toFixed(1)} label={distanceUnit === "metric" ? "Km" : "Miles"} />
+              <StatCell value={Math.round(elevationFromFeet(totalElev, distanceUnit)).toLocaleString()} label={elevLabel} />
               <StatCell value={followingCount.toString()} label="Following" onPress={() => openFollowModal("following")} />
               <StatCell value={followerCount.toString()} label="Followers" onPress={() => openFollowModal("followers")} />
             </View>
@@ -227,7 +233,11 @@ import { Feather } from "@expo/vector-icons";
               </View>
             ) : (
               hikes.map(hike => (
-                <View key={hike.id} style={styles.hikeItem}>
+                <Pressable
+                  key={hike.id}
+                  onPress={() => router.push({ pathname: "/hike-detail", params: { id: hike.id } })}
+                  style={({ pressed }) => [styles.hikeItem, { opacity: pressed ? 0.6 : 1 }]}
+                >
                   <View style={styles.hikeIcon}><Feather name="trending-up" size={18} color={Colors.green} /></View>
                   <View style={styles.hikeInfo}>
                     <Text style={styles.hikeName} numberOfLines={1}>{hike.trailName}</Text>
@@ -239,7 +249,7 @@ import { Feather } from "@expo/vector-icons";
                       <Text style={styles.hikeRatingText}>{hike.overallScore.toFixed(1)}</Text>
                     </View>
                   )}
-                </View>
+                </Pressable>
               ))
             )
           )}

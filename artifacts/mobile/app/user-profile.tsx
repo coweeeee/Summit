@@ -17,7 +17,13 @@ import { Feather } from "@expo/vector-icons";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
   import { sendPushNotification } from "@/lib/notifications";
-  import { formatDistance, formatElevation } from "@/lib/units";
+  import {
+    distanceFromMiles,
+    elevationFromFeet,
+    elevationUnitLabel,
+    formatDistance,
+    formatElevation,
+  } from "@/lib/units";
 
   type Profile = {
     id: string;
@@ -159,6 +165,9 @@ import { Feather } from "@expo/vector-icons";
     const isPrivateAndHidden = targetIsPrivate && followStatus !== "accepted" && !isOwnProfile;
     const totalMiles = hikes.reduce((s, h) => s + (h.distance_mi || 0), 0);
     const totalElev = hikes.reduce((s, h) => s + (h.elevation_ft || 0), 0);
+    // Totals sum in storage units (miles/feet), then convert once for display.
+    const totalDistanceDisplay = distanceFromMiles(totalMiles, distanceUnit);
+    const totalElevDisplay = elevationFromFeet(totalElev, distanceUnit);
 
     const followBtnLabel =
       followStatus === "accepted" ? "Following" :
@@ -211,8 +220,8 @@ import { Feather } from "@expo/vector-icons";
             {/* Stats — always visible */}
             <View style={styles.statsRow}>
               {!isPrivateAndHidden && <View style={styles.statCell}><Text style={styles.statVal}>{hikes.length}</Text><Text style={styles.statLbl}>Hikes</Text></View>}
-              {!isPrivateAndHidden && <View style={styles.statCell}><Text style={styles.statVal}>{totalMiles.toFixed(0)}</Text><Text style={styles.statLbl}>Miles</Text></View>}
-              {!isPrivateAndHidden && <View style={styles.statCell}><Text style={styles.statVal}>{totalElev >= 1000 ? `${(totalElev / 1000).toFixed(1)}k` : totalElev}</Text><Text style={styles.statLbl}>Elev. ft</Text></View>}
+              {!isPrivateAndHidden && <View style={styles.statCell}><Text style={styles.statVal}>{totalDistanceDisplay.toFixed(0)}</Text><Text style={styles.statLbl}>{distanceUnit === "metric" ? "Km" : "Miles"}</Text></View>}
+              {!isPrivateAndHidden && <View style={styles.statCell}><Text style={styles.statVal}>{totalElevDisplay >= 1000 ? `${(totalElevDisplay / 1000).toFixed(1)}k` : Math.round(totalElevDisplay)}</Text><Text style={styles.statLbl}>Elev. {elevationUnitLabel(distanceUnit)}</Text></View>}
               <View style={styles.statCell}><Text style={styles.statVal}>{followerCount}</Text><Text style={styles.statLbl}>Followers</Text></View>
               <View style={styles.statCell}><Text style={styles.statVal}>{followingCount}</Text><Text style={styles.statLbl}>Following</Text></View>
             </View>
@@ -280,7 +289,11 @@ import { Feather } from "@expo/vector-icons";
                 hikes.map(hike => {
                   const dc = getDiffColor(hike.difficulty);
                   return (
-                    <View key={hike.id} style={styles.hikeItem}>
+                    <Pressable
+                      key={hike.id}
+                      onPress={() => router.push({ pathname: "/hike-detail", params: { id: hike.id } })}
+                      style={({ pressed }) => [styles.hikeItem, { opacity: pressed ? 0.6 : 1 }]}
+                    >
                       <View style={styles.hikeIcon}><Feather name="trending-up" size={16} color={Colors.green} /></View>
                       <View style={styles.hikeInfo}>
                         <Text style={styles.hikeName} numberOfLines={1}>{hike.trail_name}</Text>
@@ -297,7 +310,7 @@ import { Feather } from "@expo/vector-icons";
                         )}
                         <View style={[styles.diffDot, { backgroundColor: dc }]} />
                       </View>
-                    </View>
+                    </Pressable>
                   );
                 })
               )}

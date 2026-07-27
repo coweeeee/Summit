@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
   import { Alert } from 'react-native'
   import { supabase } from '@/lib/supabase'
   import { LEGAL_TERMS_VERSION } from '@/constants/legal'
+  import { isValidUsername, normalizeUsername } from '@/lib/username'
 
   export type Profile = {
     id: string
@@ -26,7 +27,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     networkError: boolean
     signIn: (email: string, password: string) => Promise<boolean>
     signUp: (email: string, password: string, fullName: string, username: string, termsAccepted: boolean) => Promise<{ ok: boolean; usernameConflict?: boolean }>
-    claimUsername: (username: string) => Promise<{ ok: boolean; conflict?: boolean }>
+    claimUsername: (username: string) => Promise<{ ok: boolean; conflict?: boolean; invalid?: boolean }>
     signOut: () => Promise<void>
     refreshProfile: () => Promise<void>
     retryAuth: () => void
@@ -50,15 +51,27 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     const [networkError, setNetworkError] = useState(false)
     const [retryKey, setRetryKey] = useState(0)
 
-    const fetchProfile = async (userId: string) => {
+    // Returns whether the profile actually loaded. A silent failure here used to
+    // leave `profile` null forever, which every screen reads as "imperial" and
+    // which turns every Settings toggle into a no-op — with nothing shown to the
+    // user. Callers decide how loudly to fail.
+    const fetchProfile = async (userId: string): Promise<boolean> => {
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', userId)
           .single()
-        if (data) setProfile(data)
-      } catch (_) {}
+        if (error || !data) {
+          console.warn('profile fetch failed', error?.message)
+          return false
+        }
+        setProfile(data)
+        return true
+      } catch (e: any) {
+        console.warn('profile fetch failed', e?.message)
+        return false
+      }
     }
 
     useEffect(() => {
@@ -66,9 +79,14 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
       setNetworkError(false)
 
       withTimeout(supabase.auth.getSession(), 10_000)
-        .then(({ data: { session } }) => {
+        .then(async ({ data: { session } }) => {
           setSession(session)
-          if (session) fetchProfile(session.user.id)
+          // Awaited, so the app never renders past the gate with a session but
+          // no profile. A profile that won't load surfaces the same retry screen
+          // as an unreachable server rather than silently wrong preferences.
+          if (session && !(await fetchProfile(session.user.id))) {
+            setNetworkError(true)
+          }
           setLoading(false)
         })
         .catch(() => {
@@ -151,9 +169,28 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
       }
     }
 
-    const claimUsername = async (username: string): Promise<{ ok: boolean; conflict?: boolean }> => {
+    // The only supported way to write `profiles.username`. Normalizes, validates
+    // and checks availability before writing, so every caller gets the same
+    // rules and the same conflict handling instead of a raw Postgres error.
+    const claimUsername = async (username: string): Promise<{ ok: boolean; conflict?: boolean; invalid?: boolean }> => {
       if (!session) return { ok: false }
-      const { error } = await supabase.from('profiles').update({ username }).eq('id', session.user.id)
+
+      const normalized = normalizeUsername(username)
+      if (!isValidUsername(normalized)) return { ok: false, invalid: true }
+
+      // `is_username_available` counts the caller's own row, so an unchanged
+      // username would otherwise report itself as taken.
+      if (normalized !== profile?.username) {
+        const { data: available, error: checkError } = await supabase
+          .rpc('is_username_available', { check_username: normalized })
+        if (checkError) {
+          Alert.alert('Could not save username', 'Could not check availability. Please try again.')
+          return { ok: false }
+        }
+        if (!available) return { ok: false, conflict: true }
+      }
+
+      const { error } = await supabase.from('profiles').update({ username: normalized }).eq('id', session.user.id)
       if (error) {
         if (error.code === '23505') return { ok: false, conflict: true }
         Alert.alert('Could not save username', error.message)
