@@ -53,7 +53,8 @@ function mapHike(h: any): Hike {
 }
 
 export function HikesProvider({ children }: { children: React.ReactNode }) {
-  const { session } = useAuth()
+  const { session, profile } = useAuth()
+  const distanceUnit = profile?.distance_unit ?? 'imperial'
   const [hikes, setHikes] = useState<Hike[]>([])
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set())
   const [awardedBadgeKeys, setAwardedBadgeKeys] = useState<Set<string>>(new Set())
@@ -111,7 +112,7 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
           targetUserId: session.user.id,
           type: 'milestone',
           title: 'Badge earned!',
-          body: `You earned the ${b.label}`,
+          body: `You earned the ${b.announce(distanceUnit)}`,
           badgeKey: b.key,
         })
       )

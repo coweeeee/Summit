@@ -73,7 +73,6 @@ import { Feather } from "@expo/vector-icons";
     const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
     const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
     const [trailBookmarkIds, setTrailBookmarkIds] = useState<Set<string>>(new Set());
-    const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -136,23 +135,10 @@ import { Feather } from "@expo/vector-icons";
       if (data) setTrailBookmarkIds(new Set(data.map((d: any) => d.trail_id)));
     };
 
-    const fetchBlocked = async () => {
-      if (!session) return;
-      const [{ data: iBlock }, { data: blockMe }] = await Promise.all([
-        supabase.from("blocks").select("blocked_id").eq("blocker_id", session.user.id),
-        supabase.from("blocks").select("blocker_id").eq("blocked_id", session.user.id),
-      ]);
-      const ids = new Set<string>([
-        ...((iBlock || []).map((r: any) => r.blocked_id)),
-        ...((blockMe || []).map((r: any) => r.blocker_id)),
-      ]);
-      setBlockedSet(ids);
-    };
-
     const load = async () => {
       setLoading(true);
       offsetRef.current = 0;
-      const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks(), fetchBlocked()]);
+      const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks()]);
       setHikes(page);
       offsetRef.current = page.length;
       setLoading(false);
@@ -170,7 +156,7 @@ import { Feather } from "@expo/vector-icons";
       setRefreshing(true);
       offsetRef.current = 0;
       setHasMore(true);
-      const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks(), fetchBlocked()]);
+      const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks()]);
       setHikes(page);
       offsetRef.current = page.length;
       setRefreshing(false);
@@ -234,7 +220,10 @@ import { Feather } from "@expo/vector-icons";
       showToast("Report submitted — our team will review it");
     };
 
-    const visibleHikes = hikes.filter(h => !blockedSet.has(h.user_id));
+    // Blocks are enforced by RLS via can_view_user_content, so a blocked user's
+    // hikes never reach the client. Filtering here as well only made pages
+    // render short, since it ran after pagination.
+    const visibleHikes = hikes;
 
     const renderCard = ({ item: hike, index: idx }: { item: FeedHike; index: number }) => {
       const diffColor = getDiffColor(hike.difficulty);

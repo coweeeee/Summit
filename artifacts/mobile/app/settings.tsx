@@ -364,17 +364,7 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="user"
             label="Edit Profile"
-            onPress={() => {
-              setEditName(profile?.full_name || "");
-              setEditBio(profile?.bio || "");
-              setEditUsername(profile?.username || "");
-              setShowEditModal(true);
-            }}
-          />
-          <SettingsRow
-            icon="at-sign"
-            label="Username"
-            value={profile?.username || "Not set"}
+            value={profile?.username ? `@${profile.username}` : "Not set"}
             onPress={() => {
               setEditName(profile?.full_name || "");
               setEditBio(profile?.bio || "");

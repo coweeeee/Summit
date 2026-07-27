@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { findBadgeDefinition } from "@/lib/badges";
 
 type Notif = {
   id: string;
@@ -23,6 +24,8 @@ type Notif = {
   color: string;
   text: string;
   time: string;
+  /** ISO timestamp backing the ordering; `time` is only its display form. */
+  sortAt: string;
 };
 
 type FollowRequest = {
@@ -49,6 +52,7 @@ export default function NotificationsScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const router = useRouter();
   const { session, profile } = useAuth();
+  const distanceUnit = profile?.distance_unit ?? "imperial";
 
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [followRequests, setFollowRequests] = useState<FollowRequest[]>([]);
@@ -116,6 +120,7 @@ export default function NotificationsScreen() {
             color: "#c46060",
             text: `${name} liked your hike on ${hike?.trail_name || "a trail"}`,
             time: timeAgo(l.created_at),
+            sortAt: l.created_at,
           });
         });
       }
@@ -139,6 +144,7 @@ export default function NotificationsScreen() {
           color: "#7ab8c8",
           text: `${name} started following you`,
           time: timeAgo(f.created_at),
+          sortAt: f.created_at,
         });
       });
     }
@@ -181,38 +187,38 @@ export default function NotificationsScreen() {
             color: "#8a7ec8",
             text: `${name} commented on your hike on ${hike?.trail_name || "a trail"}`,
             time: timeAgo(c.created_at),
+            sortAt: c.created_at,
           });
         });
       }
     }
 
-    // 4. Badge milestones based on hike count
-    if (notifMilestones && myHikes) {
-      if (myHikes.length >= 10) {
+    // 4. Badges actually awarded. Read from `user_badges` — the server record —
+    // rather than recomputed from hike count, so this list can't disagree with
+    // the profile grid, and every badge is covered instead of just two.
+    if (notifMilestones) {
+      const { data: badges } = await supabase
+        .from("user_badges")
+        .select("badge_key, awarded_at")
+        .eq("user_id", session.user.id);
+
+      (badges || []).forEach((b: any) => {
+        const def = findBadgeDefinition(b.badge_key);
+        if (!def) return;
         results.push({
-          id: "badge-summit",
+          id: `badge-${b.badge_key}`,
           icon: "award",
           color: "#d4943a",
-          text: "You earned the Summit badge — 10 hikes logged!",
-          time: "earned",
+          text: `You earned the ${def.announce(distanceUnit)}`,
+          time: timeAgo(b.awarded_at),
+          sortAt: b.awarded_at,
         });
-      } else if (myHikes.length >= 5) {
-        results.push({
-          id: "badge-explorer",
-          icon: "award",
-          color: "#7ab8c8",
-          text: "You earned the Explorer badge — 5 hikes logged!",
-          time: "earned",
-        });
-      }
+      });
     }
 
-    // Sort by most recent first (badge notifications go to end)
-    results.sort((a, b) => {
-      if (a.time === "earned") return 1;
-      if (b.time === "earned") return -1;
-      return 0;
-    });
+    // Every entry now carries a real timestamp, so this is a genuine
+    // most-recent-first ordering rather than fetch order.
+    results.sort((a, b) => new Date(b.sortAt).getTime() - new Date(a.sortAt).getTime());
 
     setNotifs(results);
     setLoading(false);

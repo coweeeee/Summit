@@ -19,7 +19,7 @@ import { Feather } from "@expo/vector-icons";
   import { useAuth } from "@/context/AuthContext";
   import { useHikes } from "@/context/HikesContext";
   import { supabase } from "@/lib/supabase";
-  import { BADGE_DEFINITIONS, isEarlyBirdStart } from "@/lib/badges";
+  import { BADGE_DEFINITIONS, badgeProgress, isEarlyBirdStart } from "@/lib/badges";
   import {
     distanceFromMiles,
     elevationFromFeet,
@@ -31,15 +31,21 @@ import { Feather } from "@expo/vector-icons";
   type SavedTrail = { id: string; name: string; location: string; difficulty: string; rating: number; distance_mi: number; elevation_ft: number; };
   type FollowUser = { id: string; full_name: string | null; avatar_url: string | null; };
 
-  const badgeCheck = (key: string) => BADGE_DEFINITIONS.find(b => b.key === key)!.check;
+  // Icon and colour are the only presentation-specific parts of a badge; the
+  // name, the copy and the earning rule all come from lib/badges so this screen
+  // can't drift from the notifications list or the award logic.
+  const BADGE_VISUALS: Record<string, { icon: React.ComponentProps<typeof Feather>["name"]; color: string }> = {
+    climber:     { icon: "trending-up", color: Colors.green },
+    explorer:    { icon: "map",         color: Colors.sky },
+    summit:      { icon: "award",       color: Colors.amber },
+    trailblazer: { icon: "zap",         color: "#a89fd4" },
+    earlybird:   { icon: "sun",         color: Colors.amber2 },
+  };
 
-  const BADGES = [
-    { key: "climber",     icon: "trending-up" as const, label: "Climber",     color: Colors.green,  desc: "Gain 5,000+ ft elevation total", check: badgeCheck("climber") },
-    { key: "explorer",   icon: "map"         as const, label: "Explorer",    color: Colors.sky,    desc: "Log 5 hikes",  check: badgeCheck("explorer") },
-    { key: "summit",     icon: "award"       as const, label: "Summit",      color: Colors.amber,  desc: "Log 10 hikes", check: badgeCheck("summit") },
-    { key: "trailblazer",icon: "zap"         as const, label: "Trailblazer", color: "#a89fd4",     desc: "Log 25 hikes", check: badgeCheck("trailblazer") },
-    { key: "earlybird",  icon: "sun"         as const, label: "Early Bird",  color: Colors.amber2, desc: "Start a hike before 7 AM",  check: badgeCheck("earlybird") },
-  ];
+  const BADGES = BADGE_DEFINITIONS.map(def => ({
+    ...def,
+    ...(BADGE_VISUALS[def.key] ?? { icon: "award" as const, color: Colors.text3 }),
+  }));
 
   function formatDateShort(iso: string): string {
     return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -203,7 +209,7 @@ import { Feather } from "@expo/vector-icons";
                     <View style={[styles.badgeIcon, { borderColor: unlocked ? b.color : Colors.border }]}>
                       <Feather name={b.icon} size={22} color={unlocked ? b.color : Colors.text3} />
                     </View>
-                    <Text style={[styles.badgeLabel, !unlocked && { color: Colors.text3 }]}>{b.label}</Text>
+                    <Text style={[styles.badgeLabel, !unlocked && { color: Colors.text3 }]}>{b.name}</Text>
                     {unlocked && <View style={styles.badgeCheck}><Feather name="check" size={8} color="#fff" /></View>}
                   </Pressable>
                 );
@@ -308,14 +314,18 @@ import { Feather } from "@expo/vector-icons";
           <Pressable style={styles.modalOverlay} onPress={() => setSelectedBadge(null)}>
             <View style={styles.badgeModal}>
               {selectedBadge && (() => {
-                const unlocked = selectedBadge.check(hikes.length, totalElev, hasEarlyHike);
+                // Matches the grid above: the server record wins, so a badge
+                // can't read as earned in one place and unearned in the other.
+                const unlocked =
+                  awardedBadgeKeys.has(selectedBadge.key) ||
+                  selectedBadge.check(hikes.length, totalElev, hasEarlyHike);
                 return (
                   <>
                     <View style={[styles.badgeModalIcon, { borderColor: unlocked ? selectedBadge.color : Colors.border, opacity: unlocked ? 1 : 0.5 }]}>
                       <Feather name={selectedBadge.icon} size={32} color={unlocked ? selectedBadge.color : Colors.text3} />
                     </View>
-                    <Text style={styles.badgeModalName}>{selectedBadge.label}</Text>
-                    <Text style={styles.badgeModalDesc}>{selectedBadge.desc}</Text>
+                    <Text style={styles.badgeModalName}>{selectedBadge.name}</Text>
+                    <Text style={styles.badgeModalDesc}>{selectedBadge.describe(distanceUnit)}</Text>
                     {unlocked ? (
                       <View style={styles.badgeModalUnlocked}>
                         <Feather name="check-circle" size={14} color={Colors.green} />
@@ -327,11 +337,10 @@ import { Feather } from "@expo/vector-icons";
                         <Text style={styles.badgeModalLockedText}>Keep hiking to earn this</Text>
                       </View>
                     )}
-                    {selectedBadge.key === "explorer"    && !unlocked && <Text style={styles.badgeProgress}>{hikes.length} / 5 hikes</Text>}
-                    {selectedBadge.key === "summit"      && !unlocked && <Text style={styles.badgeProgress}>{hikes.length} / 10 hikes</Text>}
-                    {selectedBadge.key === "trailblazer" && !unlocked && <Text style={styles.badgeProgress}>{hikes.length} / 25 hikes</Text>}
-                    {selectedBadge.key === "climber"     && !unlocked && <Text style={styles.badgeProgress}>{formatElevation(totalElev, distanceUnit)} / {formatElevation(5000, distanceUnit)} elevation</Text>}
-                    {selectedBadge.key === "earlybird"   && !unlocked && <Text style={styles.badgeProgress}>Log a hike that started before 7 AM</Text>}
+                    {!unlocked && (() => {
+                      const progress = badgeProgress(selectedBadge.key, hikes.length, totalElev, distanceUnit);
+                      return progress ? <Text style={styles.badgeProgress}>{progress}</Text> : null;
+                    })()}
                   </>
                 );
               })()}
