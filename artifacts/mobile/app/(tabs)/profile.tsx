@@ -20,6 +20,7 @@ import { Feather } from "@expo/vector-icons";
   import { useHikes } from "@/context/HikesContext";
   import { supabase } from "@/lib/supabase";
   import { BADGE_DEFINITIONS, badgeProgress, isEarlyBirdStart } from "@/lib/badges";
+  import { formatShortDate, getDiffColor, getInitials } from "@/lib/format";
   import {
     distanceFromMiles,
     elevationFromFeet,
@@ -46,22 +47,6 @@ import { Feather } from "@expo/vector-icons";
     ...def,
     ...(BADGE_VISUALS[def.key] ?? { icon: "award" as const, color: Colors.text3 }),
   }));
-
-  function formatDateShort(iso: string): string {
-    return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  }
-  function getDiffColor(diff: string) {
-    switch (diff?.toLowerCase()) {
-      case "easy": return Colors.green;
-      case "moderate": return Colors.amber;
-      case "hard": return Colors.red;
-      default: return Colors.text3;
-    }
-  }
-  function getInitials(name: string | null) {
-    if (!name) return "?";
-    return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
-  }
 
   function StatCell({ value, label, onPress }: { value: string; label: string; onPress?: () => void }) {
     return (
@@ -247,7 +232,7 @@ import { Feather } from "@expo/vector-icons";
                   <View style={styles.hikeIcon}><Feather name="trending-up" size={18} color={Colors.green} /></View>
                   <View style={styles.hikeInfo}>
                     <Text style={styles.hikeName} numberOfLines={1}>{hike.trailName}</Text>
-                    <Text style={styles.hikeMeta}>{formatDistance(hike.distanceMi, distanceUnit)} · {formatElevation(hike.elevationFt, distanceUnit)} · {formatDateShort(hike.date)}</Text>
+                    <Text style={styles.hikeMeta}>{formatDistance(hike.distanceMi, distanceUnit)} · {formatElevation(hike.elevationFt, distanceUnit)} · {formatShortDate(hike.date)}</Text>
                   </View>
                   {hike.overallScore > 0 && (
                     <View style={styles.hikeRating}>

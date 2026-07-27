@@ -19,8 +19,10 @@ import { Feather } from "@expo/vector-icons";
   import Colors from "@/constants/colors";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
+  import { useHikes } from "@/context/HikesContext";
   import { sendPushNotification } from "@/lib/notifications";
   import { formatDistance, formatElevation } from "@/lib/units";
+  import { formatFullDate, getDiffColor, getInitials, timeAgo } from "@/lib/format";
 
   type HikeDetail = {
     id: string; trail_name: string; location: string; distance_mi: number;
@@ -33,36 +35,12 @@ import { Feather } from "@expo/vector-icons";
 
   const REPORT_REASONS = ["Spam", "Harassment or bullying", "Inappropriate content", "Other"];
 
-  function getDiffColor(diff: string) {
-    switch (diff?.toLowerCase()) {
-      case "easy": return Colors.green;
-      case "moderate": return Colors.amber;
-      case "hard": return Colors.red;
-      case "expert": return "#a855d4";
-      default: return Colors.text3;
-    }
-  }
-
-  function timeAgo(dateStr: string) {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  }
-
-  function getInitials(name: string) {
-    if (!name) return "?";
-    return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
-  }
-
   export default function HikeDetailScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { session, profile } = useAuth();
+    const { refresh: refreshHikes } = useHikes();
     const distanceUnit = profile?.distance_unit ?? "imperial";
 
     const [hike, setHike] = useState<HikeDetail | null>(null);
@@ -75,6 +53,7 @@ import { Feather } from "@expo/vector-icons";
     const [posting, setPosting] = useState(false);
     const [hikerName, setHikerName] = useState("Anonymous");
     const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
+    const [deleting, setDeleting] = useState(false);
     const scrollRef = useRef<ScrollView>(null);
 
     const [reportModal, setReportModal] = useState<{ hikeId?: string; commentId?: string; reportedUserId: string; label: string } | null>(null);
@@ -115,14 +94,27 @@ import { Feather } from "@expo/vector-icons";
         }
 
         if (session) {
-          const [{ data: iBlock }, { data: blockMe }] = await Promise.all([
-            supabase.from("blocks").select("blocked_id").eq("blocker_id", session.user.id),
-            supabase.from("blocks").select("blocker_id").eq("blocked_id", session.user.id),
-          ]);
-          setBlockedSet(new Set([
-            ...((iBlock || []).map((r: any) => r.blocked_id)),
-            ...((blockMe || []).map((r: any) => r.blocker_id)),
-          ]));
+          // Comments are RLS-gated on the *hike's* owner, not on the commenter,
+          // so a blocked user's comments still come back and have to be filtered
+          // here. Blocks I created are readable directly; the reverse direction
+          // isn't (RLS on `blocks` is `auth.uid() = blocker_id`), so it needs the
+          // is_blocked_by RPC — one call per commenter we don't already exclude.
+          const { data: iBlock } = await supabase
+            .from("blocks").select("blocked_id").eq("blocker_id", session.user.id);
+          const blocked = new Set<string>((iBlock || []).map((r: any) => r.blocked_id));
+
+          const commenterIds = [...new Set((commentsRes.data || []).map((c: any) => c.user_id as string))];
+          const toCheck = commenterIds.filter(uid => uid !== session.user.id && !blocked.has(uid));
+          if (toCheck.length > 0) {
+            const results = await Promise.all(
+              toCheck.map(async uid => {
+                const { data } = await supabase.rpc("is_blocked_by", { other_user_id: uid });
+                return [uid, data === true] as const;
+              })
+            );
+            results.forEach(([uid, isBlockedBy]) => { if (isBlockedBy) blocked.add(uid); });
+          }
+          setBlockedSet(blocked);
         }
 
         setLoading(false);
@@ -175,6 +167,36 @@ import { Feather } from "@expo/vector-icons";
       }
     };
 
+    const deleteHike = async () => {
+      if (!session) return;
+      setDeleting(true);
+      // comments, likes, dim_ratings, hike_photos and reports all cascade off
+      // the hike's FK. Storage objects don't, and the rows recording their URLs
+      // are about to disappear, so clear those first.
+      const paths = photos
+        .map(url => url.split("/hike-photos/")[1])
+        .filter(Boolean)
+        .map(p => decodeURIComponent(p.split("?")[0]));
+      if (paths.length > 0) await supabase.storage.from("hike-photos").remove(paths);
+
+      const { error } = await supabase.from("hikes").delete().eq("id", id);
+      setDeleting(false);
+      if (error) { Alert.alert("Couldn't delete hike", error.message); return; }
+      await refreshHikes();
+      router.back();
+    };
+
+    const confirmDeleteHike = () => {
+      Alert.alert(
+        "Delete this hike?",
+        "This removes the hike along with its photos, ratings, likes and comments. It can't be undone.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Delete", style: "destructive", onPress: deleteHike },
+        ]
+      );
+    };
+
     const deleteComment = async (commentId: string) => {
       await supabase.from("comments").delete().eq("id", commentId);
       setComments(prev => prev.filter(c => c.id !== commentId));
@@ -218,7 +240,18 @@ import { Feather } from "@expo/vector-icons";
             >
               <Feather name="flag" size={18} color={Colors.text3} />
             </Pressable>
-          ) : <View style={{ width: 36 }} />}
+          ) : (
+            <Pressable
+              onPress={confirmDeleteHike}
+              disabled={deleting}
+              style={({ pressed }) => [styles.headerAction, { opacity: pressed || deleting ? 0.6 : 1 }]}
+            >
+              {deleting
+                ? <ActivityIndicator size="small" color={Colors.red} />
+                : <Feather name="trash-2" size={18} color={Colors.red} />
+              }
+            </Pressable>
+          )}
         </View>
 
         <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
@@ -245,7 +278,7 @@ import { Feather } from "@expo/vector-icons";
                 <View style={styles.hikerAvatar}><Text style={styles.hikerInitials}>{getInitials(hikerName)}</Text></View>
                 <Text style={styles.hikerName}>{hikerName}</Text>
               </Pressable>
-              <Text style={styles.metaDate}>{new Date(hike.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</Text>
+              <Text style={styles.metaDate}>{formatFullDate(hike.date)}</Text>
             </View>
           </View>
 

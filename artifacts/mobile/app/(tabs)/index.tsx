@@ -21,6 +21,7 @@ import { Feather } from "@expo/vector-icons";
   import { useAuth } from "@/context/AuthContext";
   import { sendPushNotification } from "@/lib/notifications";
   import { formatDistance, formatElevation } from "@/lib/units";
+  import { getDiffColor, getInitials, timeAgo } from "@/lib/format";
 
   const PAGE_SIZE = 20;
   const REPORT_REASONS = ["Spam", "Harassment or bullying", "Inappropriate content", "Other"];
@@ -32,33 +33,6 @@ import { Feather } from "@expo/vector-icons";
     trail_id: string | null; dim_ratings: { name: string; score: number }[];
     userName?: string; photos?: string[]; commentCount?: number;
   };
-
-  function getDiffColor(diff: string) {
-    switch (diff?.toLowerCase()) {
-      case "easy": return Colors.green;
-      case "moderate": return Colors.amber;
-      case "hard": return Colors.red;
-      case "expert": return "#a855d4";
-      default: return Colors.text3;
-    }
-  }
-
-  function timeAgo(dateStr: string) {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    if (days < 7) return `${days}d ago`;
-    return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  }
-
-  function getInitials(name: string) {
-    if (!name) return "?";
-    return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
-  }
 
   const AVATAR_COLORS = ["#2a3d2a", "#2d2a3d", "#3d2a2a", "#2a3340", "#3d3020"];
 

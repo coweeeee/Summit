@@ -17,6 +17,7 @@ import { Feather } from "@expo/vector-icons";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
   import { sendPushNotification } from "@/lib/notifications";
+  import { formatShortDate, getDiffColor, getInitials } from "@/lib/format";
   import {
     distanceFromMiles,
     elevationFromFeet,
@@ -34,24 +35,6 @@ import { Feather } from "@expo/vector-icons";
     is_private: boolean;
   };
   type Hike = { id: string; trail_name: string; location: string; distance_mi: number; elevation_ft: number; overall_score: number; difficulty: string; date: string; };
-
-  function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  }
-
-  function getInitials(name: string | null) {
-    if (!name) return "?";
-    return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
-  }
-
-  function getDiffColor(diff: string) {
-    switch (diff?.toLowerCase()) {
-      case "easy": return Colors.green;
-      case "moderate": return Colors.amber;
-      case "hard": return Colors.red;
-      default: return Colors.text3;
-    }
-  }
 
   export default function UserProfileScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -326,7 +309,7 @@ import { Feather } from "@expo/vector-icons";
                       <View style={styles.hikeInfo}>
                         <Text style={styles.hikeName} numberOfLines={1}>{hike.trail_name}</Text>
                         <Text style={styles.hikeMeta}>
-                          {hike.distance_mi != null ? formatDistance(hike.distance_mi, distanceUnit) : "—"} · {hike.elevation_ft != null ? formatElevation(hike.elevation_ft, distanceUnit) : "—"} · {formatDate(hike.date)}
+                          {hike.distance_mi != null ? formatDistance(hike.distance_mi, distanceUnit) : "—"} · {hike.elevation_ft != null ? formatElevation(hike.elevation_ft, distanceUnit) : "—"} · {formatShortDate(hike.date)}
                         </Text>
                       </View>
                       <View style={styles.hikeRight}>

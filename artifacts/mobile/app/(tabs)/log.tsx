@@ -32,6 +32,7 @@ import {
   formatDistance,
   formatElevation,
 } from "@/lib/units";
+import { formatDateTime, getDiffColor } from "@/lib/format";
 
 const DIFFICULTIES = ["Easy", "Moderate", "Hard", "Expert"];
 const DIMENSIONS = ["Scenery", "Views", "Trail Cond.", "Crowds", "Accessibility"];
@@ -45,15 +46,6 @@ function filterDecimal(val: string): string {
 }
 function filterInteger(val: string): string { return val.replace(/[^0-9]/g, ""); }
 
-function getDiffColor(diff: string) {
-  switch (diff?.toLowerCase()) {
-    case "easy": return Colors.green;
-    case "moderate": return Colors.amber;
-    case "hard": return Colors.red;
-    case "expert": return "#a855d4";
-    default: return Colors.text3;
-  }
-}
 
 function StarRating({ dim, value, onChange }: { dim: string; value: number; onChange: (v: number) => void }) {
   return (
@@ -82,8 +74,6 @@ function SubmitButton({ onPress, disabled }: { onPress: () => void; disabled: bo
   );
 }
 
-function formatDate(d: Date): string { return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
-function formatDateTime(d: Date): string { return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`; }
 
 export default function LogScreen() {
   const { addHike } = useHikes();

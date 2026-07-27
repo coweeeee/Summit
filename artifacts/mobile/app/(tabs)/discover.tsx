@@ -24,6 +24,7 @@ import { Feather } from "@expo/vector-icons";
   import { formatDistance, formatElevation } from "@/lib/units";
   import { formatRatingDisplay } from "@/lib/ratings";
   import { sendPushNotification } from "@/lib/notifications";
+  import { getInitials } from "@/lib/format";
 
   const PAGE_SIZE = 20;
   const MAP_FETCH_LIMIT = 300;
@@ -62,11 +63,6 @@ import { Feather } from "@expo/vector-icons";
       case "expert":  return { bg: "rgba(160,80,200,0.2)",  color: "#a855d4", border: "#a855d4" };
       default:        return { bg: "rgba(109,184,122,0.2)", color: "#6db87a", border: "#6db87a" };
     }
-  }
-
-  function getInitials(name: string | null) {
-    if (!name) return "?";
-    return name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
   }
 
   function PeopleTab() {

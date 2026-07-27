@@ -17,6 +17,7 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { formatDistance, formatElevation } from "@/lib/units";
+import { getInitials } from "@/lib/format";
 
 type LeaderEntry = {
   id: string;
@@ -40,11 +41,6 @@ const CATEGORIES: Category[] = [
   { key: "elevation", label: "Most Elevation", icon: "activity", unit: "ft", color: Colors.amber },
   { key: "score", label: "Top Rated", icon: "star", unit: "avg", color: "#a855d4" },
 ];
-
-function getInitials(name: string | null) {
-  if (!name) return "?";
-  return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
-}
 
 function RankMedal({ rank }: { rank: number }) {
   if (rank === 1) return <Text style={styles.medal}>🥇</Text>;

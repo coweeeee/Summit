@@ -17,6 +17,7 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { findBadgeDefinition } from "@/lib/badges";
+import { timeAgo } from "@/lib/format";
 
 type Notif = {
   id: string;
@@ -34,18 +35,6 @@ type FollowRequest = {
   full_name: string | null;
   avatar_url: string | null;
 };
-
-function timeAgo(dateStr: string) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
@@ -225,7 +214,9 @@ export default function NotificationsScreen() {
     setRefreshing(false);
   };
 
-  useEffect(() => { fetchNotifs(); }, [session]);
+  // Keyed on the user id, not the session object: Supabase hands back a new
+  // session on every token refresh, which re-ran this whole fetch each time.
+  useEffect(() => { fetchNotifs(); }, [session?.user.id]);
 
   return (
     <View style={styles.container}>

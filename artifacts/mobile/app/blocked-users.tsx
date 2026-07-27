@@ -15,13 +15,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { getInitials } from "@/lib/format";
 
 type BlockedUser = { id: string; full_name: string | null; avatar_url: string | null; blockRowId?: string };
-
-function getInitials(name: string | null) {
-  if (!name) return "?";
-  return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
-}
 
 export default function BlockedUsersScreen() {
   const { profile } = useAuth();
