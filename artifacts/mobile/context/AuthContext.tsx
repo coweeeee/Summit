@@ -25,7 +25,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     profile: Profile | null
     loading: boolean
     networkError: boolean
-    signIn: (email: string, password: string) => Promise<boolean>
+    signInWithIdentifier: (identifier: string, password: string) => Promise<boolean>
     signUp: (email: string, password: string, fullName: string, username: string, termsAccepted: boolean) => Promise<{ ok: boolean; usernameConflict?: boolean }>
     claimUsername: (username: string) => Promise<{ ok: boolean; conflict?: boolean; invalid?: boolean }>
     signOut: () => Promise<void>
@@ -123,6 +123,36 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
       }
     }
 
+    // Username login goes through the `login-with-username` edge function, which
+    // resolves the email server-side so it is never returned to the client.
+    // Email login stays on the client: there is nothing to hide, and routing it
+    // through the function would take all logins down whenever it is down.
+    const signInWithIdentifier = async (identifier: string, password: string): Promise<boolean> => {
+      const raw = identifier.trim()
+      if (raw.includes('@')) return signIn(raw, password)
+
+      try {
+        const { data, error } = await withTimeout(
+          supabase.functions.invoke('login-with-username', {
+            body: { username: normalizeUsername(raw), password },
+          }),
+          15_000
+        )
+        if (error) { Alert.alert('Login failed', 'Could not reach the server. Please try again.'); return false }
+        if (!data?.ok) { Alert.alert('Login failed', 'Incorrect username or password.'); return false }
+
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: data.access_token,
+          refresh_token: data.refresh_token,
+        })
+        if (sessionError) { Alert.alert('Login failed', sessionError.message); return false }
+        return true
+      } catch (e: any) {
+        Alert.alert('Login failed', e?.message === 'auth_timeout' ? 'Connection timed out. Please try again.' : 'Unexpected error.')
+        return false
+      }
+    }
+
     const signUp = async (email: string, password: string, fullName: string, username: string, termsAccepted: boolean): Promise<{ ok: boolean; usernameConflict?: boolean }> => {
       if (!termsAccepted) {
         Alert.alert('Sign up failed', 'You must accept the Privacy Policy and Terms of Service to create an account.')
@@ -209,7 +239,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     }
 
     return (
-      <AuthContext.Provider value={{ session, profile, loading, networkError, signIn, signUp, claimUsername, signOut, refreshProfile, retryAuth }}>
+      <AuthContext.Provider value={{ session, profile, loading, networkError, signInWithIdentifier, signUp, claimUsername, signOut, refreshProfile, retryAuth }}>
         {children}
       </AuthContext.Provider>
     )
