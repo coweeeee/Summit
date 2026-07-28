@@ -13,36 +13,19 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabase";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { signInWithIdentifier } = useAuth();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
   const handleLogin = async () => {
     if (!identifier || !password) return;
-    setError("");
     setLoading(true);
-    const raw = identifier.trim();
-    let emailToUse = raw;
-    if (!raw.includes("@")) {
-      const { data: resolvedEmail, error: rpcError } = await supabase.rpc(
-        "get_email_for_username",
-        { lookup_username: raw }
-      );
-      if (rpcError || !resolvedEmail) {
-        setLoading(false);
-        setError("No account found with that username.");
-        return;
-      }
-      emailToUse = resolvedEmail as string;
-    }
-    const ok = await signIn(emailToUse, password);
+    const ok = await signInWithIdentifier(identifier, password);
     setLoading(false);
     if (ok) router.replace("/(tabs)");
   };
@@ -62,11 +45,10 @@ export default function LoginScreen() {
           placeholder="you@email.com or username"
           placeholderTextColor={Colors.text3}
           value={identifier}
-          onChangeText={v => { setIdentifier(v); setError(""); }}
+          onChangeText={setIdentifier}
           autoCapitalize="none"
           autoCorrect={false}
         />
-        {!!error && <Text style={styles.errorText}>{error}</Text>}
 
         <Text style={styles.label}>Password</Text>
         <TextInput
@@ -151,5 +133,4 @@ const styles = StyleSheet.create({
     color: Colors.text3,
   },
   switchLink: { color: Colors.accent, fontFamily: "Inter_600SemiBold" },
-  errorText: { color: Colors.red, fontFamily: "Inter_400Regular", fontSize: 13, marginTop: 6 },
 });
