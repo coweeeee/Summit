@@ -68,6 +68,9 @@ import { Feather } from "@expo/vector-icons";
       const { data: hikesData, error } = await supabase
         .from("hikes").select("*, dim_ratings(*)")
         .order("date", { ascending: false })
+        // Tiebreaker: two hikes sharing a date have no stable relative order,
+        // so without this the same row can appear on consecutive pages.
+        .order("id", { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1);
       if (error || !hikesData || hikesData.length === 0) { setHasMore(false); return []; }
       const userIds = [...new Set(hikesData.map((h: any) => h.user_id))];
@@ -122,7 +125,15 @@ import { Feather } from "@expo/vector-icons";
       if (loadingMore || !hasMore) return;
       setLoadingMore(true);
       const page = await fetchPage(offsetRef.current);
-      if (page.length > 0) { setHikes(prev => [...prev, ...page]); offsetRef.current += page.length; }
+      if (page.length > 0) {
+        // Same guard as Discover: a hike logged between page fetches shifts the
+        // offsets and can re-serve a row the list already holds.
+        setHikes(prev => {
+          const seen = new Set(prev.map(h => h.id));
+          return [...prev, ...page.filter(h => !seen.has(h.id))];
+        });
+        offsetRef.current += page.length;
+      }
       setLoadingMore(false);
     };
 
@@ -226,8 +237,8 @@ import { Feather } from "@expo/vector-icons";
 
           {hike.photos && hike.photos.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photosScroll} contentContainerStyle={styles.photosContent}>
-              {hike.photos.map((url, i) => (
-                <Image key={i} source={url} style={styles.photoThumb} contentFit="cover" cachePolicy="memory-disk" />
+              {hike.photos.map(url => (
+                <Image key={url} source={url} style={styles.photoThumb} contentFit="cover" cachePolicy="memory-disk" />
               ))}
             </ScrollView>
           )}

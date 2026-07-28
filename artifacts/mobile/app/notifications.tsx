@@ -93,7 +93,9 @@ export default function NotificationsScreen() {
       const hikeIds = myHikes.map((h: any) => h.id);
       const { data: likes } = await supabase
         .from("likes")
-        .select("hike_id, created_at, profiles(full_name)")
+        // user_id is selected so the key can use the row's real primary key
+        // (user_id, hike_id) rather than a timestamp that two rows could share.
+        .select("user_id, hike_id, created_at, profiles(full_name)")
         .in("hike_id", hikeIds)
         .neq("user_id", session.user.id)
         .order("created_at", { ascending: false })
@@ -104,7 +106,7 @@ export default function NotificationsScreen() {
           const hike = myHikes.find((h: any) => h.id === l.hike_id);
           const name = l.profiles?.full_name || "Someone";
           results.push({
-            id: `like-${l.hike_id}-${l.created_at}`,
+            id: `like-${l.user_id}-${l.hike_id}`,
             icon: "heart",
             color: "#c46060",
             text: `${name} liked your hike on ${hike?.trail_name || "a trail"}`,
@@ -160,7 +162,8 @@ export default function NotificationsScreen() {
       const hikeIds = myHikes.map((h: any) => h.id);
       const { data: comments } = await supabase
         .from("comments")
-        .select("hike_id, created_at, profiles(full_name)")
+        // `id` is the comment's primary key — a stabler key than hike + timestamp.
+        .select("id, hike_id, created_at, profiles(full_name)")
         .in("hike_id", hikeIds)
         .neq("user_id", session.user.id)
         .order("created_at", { ascending: false })
@@ -171,7 +174,7 @@ export default function NotificationsScreen() {
           const hike = myHikes.find((h: any) => h.id === c.hike_id);
           const name = c.profiles?.full_name || "Someone";
           results.push({
-            id: `comment-${c.hike_id}-${c.created_at}`,
+            id: `comment-${c.id}`,
             icon: "message-circle",
             color: "#8a7ec8",
             text: `${name} commented on your hike on ${hike?.trail_name || "a trail"}`,

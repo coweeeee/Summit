@@ -257,6 +257,12 @@ import { Feather } from "@expo/vector-icons";
         case "Most Elevation":  q = q.order("elevation_ft", { ascending: false }); break;
         case "Least Elevation": q = q.order("elevation_ft", { ascending: true  }); break;
       }
+      // Every sort key above is heavily tied — 225 trails share just 11 distinct
+      // effective_rating values — and Postgres gives no stable order within a
+      // tie. Since each page is its own query, a trail could otherwise land on
+      // two pages, producing duplicate ids and React's "same key" warning.
+      // Sorting by id last makes the total order unique, so paging is stable.
+      q = q.order("id", { ascending: true });
       return q.range(offset, offset + PAGE_SIZE - 1);
     };
 
@@ -301,7 +307,13 @@ import { Feather } from "@expo/vector-icons";
       setLoadingMore(true);
       const page = await fetchPage(offsetRef.current);
       if (page.length > 0) {
-        setTrails(prev => [...prev, ...page]);
+        // Offset paging can still re-serve a row if the result set shifts
+        // between page fetches (a trail added or newly matching the filters),
+        // which the sort tiebreaker can't prevent. Drop ids already held.
+        setTrails(prev => {
+          const seen = new Set(prev.map(t => t.id));
+          return [...prev, ...page.filter(t => !seen.has(t.id))];
+        });
         offsetRef.current += page.length;
       }
       setLoadingMore(false);

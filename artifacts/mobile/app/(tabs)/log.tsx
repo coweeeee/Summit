@@ -111,7 +111,10 @@ export default function LogScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   // Photo upload state
-  const [photos, setPhotos] = useState<{ uri: string; uploading: boolean }[]>([]);
+  // Each pick carries its own id: the same image can be chosen twice, so `uri`
+  // isn't unique, and keying by array index mis-associates rows when one is
+  // removed from the middle.
+  const [photos, setPhotos] = useState<{ id: string; uri: string; uploading: boolean }[]>([]);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -220,12 +223,12 @@ export default function LogScreen() {
       });
       if (result.canceled || !result.assets[0]) return;
       const uri = result.assets[0].uri;
-      setPhotos(prev => [...prev, { uri, uploading: false }]);
+      setPhotos(prev => [...prev, { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, uri, uploading: false }]);
     } catch (_) {}
   };
 
-  const removePhoto = (idx: number) => {
-    setPhotos(prev => prev.filter((_, i) => i !== idx));
+  const removePhoto = (id: string) => {
+    setPhotos(prev => prev.filter(p => p.id !== id));
   };
 
   const reset = () => {
@@ -418,10 +421,10 @@ export default function LogScreen() {
             {/* Photos */}
             <Text style={styles.fieldLabel}>Photos</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll} contentContainerStyle={styles.photoRow}>
-              {photos.map((p, i) => (
-                <View key={i} style={styles.photoWrap}>
+              {photos.map(p => (
+                <View key={p.id} style={styles.photoWrap}>
                   <Image source={{ uri: p.uri }} style={styles.photoPreview} />
-                  <Pressable onPress={() => removePhoto(i)} style={styles.removePhoto}>
+                  <Pressable onPress={() => removePhoto(p.id)} style={styles.removePhoto}>
                     <Feather name="x" size={12} color="#fff" />
                   </Pressable>
                 </View>

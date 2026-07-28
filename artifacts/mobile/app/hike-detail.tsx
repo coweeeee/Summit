@@ -257,7 +257,7 @@ import { Feather } from "@expo/vector-icons";
         <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
           {photos.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photosScroll} contentContainerStyle={styles.photosContent}>
-              {photos.map((url, i) => <Image key={i} source={{ uri: url }} style={styles.photo} />)}
+              {photos.map(url => <Image key={url} source={{ uri: url }} style={styles.photo} />)}
             </ScrollView>
           )}
 
