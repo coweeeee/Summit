@@ -36,6 +36,20 @@ import { formatDateTime, getDiffColor } from "@/lib/format";
 import { uploadImage } from "@/lib/upload";
 
 const DIFFICULTIES = ["Easy", "Moderate", "Hard", "Expert"];
+// Ten years back is well beyond anything anyone is retro-logging, and the
+// picker's maximumDate still prevents choosing the future.
+const YEAR_OPTIONS = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
+
+// Clamps the day first, so 29 Feb into a non-leap year lands on 28 Feb rather
+// than silently rolling over into March.
+function withYear(date: Date, year: number): Date {
+  const next = new Date(date);
+  const daysInTargetMonth = new Date(year, next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(next.getDate(), daysInTargetMonth));
+  next.setFullYear(year);
+  return next > new Date() ? new Date() : next;
+}
+
 const DIMENSIONS = ["Scenery", "Views", "Trail Cond.", "Crowds", "Accessibility"];
 
 type Trail = { id: string; name: string; location: string; distance_mi: number; elevation_ft: number; difficulty: string; rating: number; };
@@ -398,13 +412,27 @@ export default function LogScreen() {
                       <Text style={styles.dateModalTitle}>Select date</Text>
                       <Pressable onPress={() => setShowDatePicker(false)} style={styles.dateModalDone}><Text style={styles.dateModalDoneText}>Done</Text></Pressable>
                     </View>
+                    {/* The iOS datetime spinner scrolls a combined day column,
+                        so reaching last year meant hundreds of flicks. These
+                        jump the year and leave month, day and time alone --
+                        time matters, since the Early Bird badge reads the hour. */}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.yearRow}>
+                      {YEAR_OPTIONS.map(y => {
+                        const active = hikeDate.getFullYear() === y;
+                        return (
+                          <Pressable key={y} onPress={() => setHikeDate(withYear(hikeDate, y))} style={[styles.yearChip, active && styles.yearChipActive]}>
+                            <Text style={[styles.yearChipText, active && styles.yearChipTextActive]}>{y}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
                     <DateTimePicker value={hikeDate} mode="datetime" display="spinner" maximumDate={new Date()} onChange={(_, d) => { if (d) setHikeDate(d); }} textColor={Colors.text} themeVariant="dark" />
                   </View>
                 </View>
               </Modal>
             )}
             {showDatePicker && Platform.OS === "android" && (
-              <DateTimePicker value={hikeDate} mode="datetime" display="default" maximumDate={new Date()} onChange={(_, d) => { setShowDatePicker(false); if (d) setHikeDate(d); }} />
+              <DateTimePicker value={hikeDate} mode="datetime" display="spinner" maximumDate={new Date()} onChange={(_, d) => { setShowDatePicker(false); if (d) setHikeDate(d); }} />
             )}
 
             <View style={styles.row3}>
@@ -634,6 +662,11 @@ const styles = StyleSheet.create({
   diffChipSmallText: { fontSize: 11, fontFamily: "Inter_500Medium" },
   changeTrailBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border2 },
   changeTrailText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.text3 },
+  yearRow: { gap: 8, paddingHorizontal: 20, paddingBottom: 4 },
+  yearChip: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3 },
+  yearChipActive: { borderColor: Colors.accent, backgroundColor: "rgba(141,207,122,0.12)" },
+  yearChipText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.text3 },
+  yearChipTextActive: { color: Colors.accent, fontFamily: "Inter_600SemiBold" },
   datePicker: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: Colors.bg3, borderWidth: 1, borderColor: Colors.border2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 13, marginBottom: 16 },
   dateText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text },
   dateModalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.5)" },

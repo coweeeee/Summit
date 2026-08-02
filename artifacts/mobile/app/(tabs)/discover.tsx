@@ -27,6 +27,10 @@ import { Feather } from "@expo/vector-icons";
   import { displayName, profileInitials } from "@/lib/format";
 
   const PAGE_SIZE = 20;
+  // The Features list is every distinct tag in the catalogue -- 116 of them,
+  // with a very steep distribution (Views 87, then a long tail below 15). All
+  // of them at once is unusable, so the common ones show and the rest expand.
+  const TOP_CATEGORY_COUNT = 12;
   const MAP_FETCH_LIMIT = 300;
   const isExpoGo = Constants.appOwnership === "expo";
 
@@ -54,6 +58,14 @@ import { Feather } from "@expo/vector-icons";
   const AVATAR_COLORS = ["#2a3d2a", "#2d2a3d", "#3d2a2a", "#2a3340", "#3d3020"];
 
   const US_REGION = { latitude: 39.5, longitude: -98.35, latitudeDelta: 30, longitudeDelta: 40 };
+
+  // PostgREST parses `or=(...)` by splitting on commas, dots, parens and
+  // braces, so a search term containing any of them silently corrupts the
+  // filter rather than failing loudly. Percent and underscore are ilike
+  // wildcards. Dropping them all is blunt but keeps the query well-formed.
+  function sanitizeFilterTerm(raw: string): string {
+    return raw.replace(/[,.()<>{}[\]"'%_*\\:]/g, " ").replace(/\s+/g, " ").trim();
+  }
 
   function getDiffStyle(diff: string) {
     switch (diff?.toLowerCase()) {
@@ -205,6 +217,7 @@ import { Feather } from "@expo/vector-icons";
     const [showRegionModal, setShowRegionModal] = useState(false);
     const [regions, setRegions] = useState<string[]>([]);
     const [categoryFilters, setCategoryFilters] = useState<string[]>([]);
+    const [showAllCategories, setShowAllCategories] = useState(false);
 
     const [trails, setTrails] = useState<Trail[]>([]);
     const [mapTrails, setMapTrails] = useState<Trail[]>([]);
@@ -233,10 +246,16 @@ import { Feather } from "@expo/vector-icons";
     const fetchCategoryFilters = async () => {
       const { data } = await supabase.from("trails").select("tags").not("tags", "is", null);
       if (data) {
-        const unique = Array.from(
-          new Set(data.flatMap((r: any) => Array.isArray(r.tags) ? r.tags : []).filter(Boolean))
-        ).sort() as string[];
-        setCategoryFilters(unique);
+        // Ranked by trail count so the visible subset is the useful one;
+        // alphabetical order put "Alpine" and "Arch" ahead of "Views".
+        const counts = new Map<string, number>();
+        data.flatMap((r: any) => Array.isArray(r.tags) ? r.tags : [])
+          .filter(Boolean)
+          .forEach((t: string) => counts.set(t, (counts.get(t) ?? 0) + 1));
+        const ranked = Array.from(counts.entries())
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .map(([tag]) => tag);
+        setCategoryFilters(ranked);
       }
     };
 
@@ -246,7 +265,14 @@ import { Feather } from "@expo/vector-icons";
       if (diffFilter !== "All") q = q.eq("difficulty", diffFilter);
       if (regionFilter !== "All Regions") q = q.eq("region", regionFilter);
       if (activeCategories.length > 0) q = q.contains("tags", activeCategories);
-      if (debouncedSearch.trim()) q = q.or(`name.ilike.%${debouncedSearch}%,location.ilike.%${debouncedSearch}%`);
+      const term = sanitizeFilterTerm(debouncedSearch);
+      if (term) {
+        // Whole-tag match: tags are stored capitalised, so "geyser" finds the
+        // "Geyser" tag. It will not match "Geysers" -- substring matching over
+        // an array needs an unnest, which means an RPC rather than PostgREST.
+        const asTag = term.charAt(0).toUpperCase() + term.slice(1).toLowerCase();
+        q = q.or(`name.ilike.%${term}%,location.ilike.%${term}%,tags.cs.{"${asTag}"}`);
+      }
       return q;
     };
 
@@ -350,6 +376,15 @@ import { Feather } from "@expo/vector-icons";
         setSavedIds(prev => new Set([...prev, trail.id]));
       }
     };
+
+    // Anything already selected stays on screen even when collapsed, so a tag
+    // picked from the expanded list can still be seen and switched off.
+    const visibleCategories = showAllCategories
+      ? categoryFilters
+      : Array.from(new Set([
+          ...categoryFilters.slice(0, TOP_CATEGORY_COUNT),
+          ...activeCategories,
+        ]));
 
     const toggleCategory = (cat: string) => {
       setActiveCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]);
@@ -604,7 +639,7 @@ import { Feather } from "@expo/vector-icons";
               </View>
               <Text style={styles.modalSectionTitle}>Features</Text>
               <View style={styles.modalChipsWrap}>
-                {categoryFilters.map(cat => {
+                {visibleCategories.map(cat => {
                   const active = activeCategories.includes(cat);
                   return (
                     <Pressable key={cat} onPress={() => toggleCategory(cat)} style={[styles.modalChip, active && styles.modalChipActive]}>
@@ -612,6 +647,18 @@ import { Feather } from "@expo/vector-icons";
                     </Pressable>
                   );
                 })}
+                {categoryFilters.length > visibleCategories.length && (
+                  <Pressable onPress={() => setShowAllCategories(true)} style={styles.modalChip}>
+                    <Text style={styles.modalChipText}>
+                      Show all {categoryFilters.length}
+                    </Text>
+                  </Pressable>
+                )}
+                {showAllCategories && categoryFilters.length > TOP_CATEGORY_COUNT && (
+                  <Pressable onPress={() => setShowAllCategories(false)} style={styles.modalChip}>
+                    <Text style={styles.modalChipText}>Show fewer</Text>
+                  </Pressable>
+                )}
               </View>
             </ScrollView>
           </View>
