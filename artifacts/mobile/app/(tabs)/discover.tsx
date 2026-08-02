@@ -25,6 +25,7 @@ import { Feather } from "@expo/vector-icons";
   import { formatRatingDisplay } from "@/lib/ratings";
   import { sendPushNotification } from "@/lib/notifications";
   import { displayName, profileInitials } from "@/lib/format";
+  import TrailMap from "@/components/TrailMap";
 
   const PAGE_SIZE = 20;
   // The Features list is every distinct tag in the catalogue -- 116 of them,
@@ -205,6 +206,9 @@ import { Feather } from "@expo/vector-icons";
 
     const [activeTab, setActiveTab] = useState<"trails" | "people">("trails");
     const [viewMode, setViewMode] = useState<"list" | "map">("list");
+    // At most one card's map is mounted. Each is a WebView, so rendering one
+    // per card would be far heavier than the native map on the map tab.
+    const [expandedMapId, setExpandedMapId] = useState<string | null>(null);
 
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -406,6 +410,7 @@ import { Feather } from "@expo/vector-icons";
     const renderTrailCard = ({ item: trail }: { item: Trail }) => {
       const ds = getDiffStyle(trail.difficulty);
       const isSaved = savedIds.has(trail.id);
+      const mapOpen = expandedMapId === trail.id;
       return (
         <Pressable
           style={({ pressed }) => [styles.card, { opacity: pressed ? 0.92 : 1 }]}
@@ -416,9 +421,20 @@ import { Feather } from "@expo/vector-icons";
               <View style={[styles.diffDot, { backgroundColor: ds.color }]} />
               <Text style={[styles.diffLabel, { color: ds.color }]}>{trail.difficulty}</Text>
             </View>
-            <Pressable onPress={() => toggleSave(trail)} hitSlop={10} style={({ pressed }) => [styles.bookmarkBtn, isSaved && styles.bookmarkBtnSaved, { opacity: pressed ? 0.7 : 1 }]}>
-              <Feather name="bookmark" size={14} color={isSaved ? "#fff" : Colors.text3} />
-            </Pressable>
+            <View style={styles.cardActions}>
+              {trail.lat != null && trail.lng != null && (
+                <Pressable
+                  onPress={() => setExpandedMapId(prev => (prev === trail.id ? null : trail.id))}
+                  hitSlop={10}
+                  style={({ pressed }) => [styles.bookmarkBtn, mapOpen && styles.bookmarkBtnSaved, { opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <Feather name="map-pin" size={14} color={mapOpen ? "#fff" : Colors.text3} />
+                </Pressable>
+              )}
+              <Pressable onPress={() => toggleSave(trail)} hitSlop={10} style={({ pressed }) => [styles.bookmarkBtn, isSaved && styles.bookmarkBtnSaved, { opacity: pressed ? 0.7 : 1 }]}>
+                <Feather name="bookmark" size={14} color={isSaved ? "#fff" : Colors.text3} />
+              </Pressable>
+            </View>
           </View>
           <View style={styles.cardBody}>
             <View style={styles.cardTitleRow}>
@@ -441,6 +457,13 @@ import { Feather } from "@expo/vector-icons";
                 {trail.tags.slice(0, 3).map((tag: string) => <View key={tag} style={styles.tag}><Text style={styles.tagText}>{tag}</Text></View>)}
                 {trail.tags.length > 3 && <View style={styles.tag}><Text style={styles.tagText}>+{trail.tags.length - 3}</Text></View>}
               </View>
+            )}
+            {mapOpen && trail.lat != null && trail.lng != null && (
+              // Absorbs taps and drags so panning the map doesn't fall through
+              // to the card's own press handler and navigate away.
+              <Pressable onPress={() => {}} style={{ marginTop: 10 }}>
+                <TrailMap lat={trail.lat} lng={trail.lng} name={trail.name} height={160} zoom={12} />
+              </Pressable>
             )}
             <View style={styles.cardFooter}>
               <Text style={styles.tapHint}>Tap for details</Text>
@@ -592,6 +615,7 @@ import { Feather } from "@expo/vector-icons";
                   data={trails}
                   keyExtractor={item => item.id}
                   renderItem={renderTrailCard}
+                  extraData={expandedMapId}
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={{ paddingBottom: 100, paddingTop: 4 }}
                   refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent} />}
@@ -745,6 +769,7 @@ import { Feather } from "@expo/vector-icons";
     stat: { gap: 2 },
     statVal: { fontSize: 13, fontFamily: "Inter_500Medium", color: Colors.text },
     statLbl: { fontSize: 10, color: Colors.text3, textTransform: "uppercase", letterSpacing: 0.5 },
+    cardActions: { flexDirection: "row", alignItems: "center", gap: 8 },
     tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
     tag: { paddingVertical: 3, paddingHorizontal: 10, borderRadius: 20, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
     tagText: { fontSize: 11, color: Colors.text2, fontFamily: "Inter_400Regular" },
