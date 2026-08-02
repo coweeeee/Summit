@@ -19,6 +19,7 @@ import { Feather } from "@expo/vector-icons";
   import { sendPushNotification } from "@/lib/notifications";
   import { displayName, formatShortDate, getDiffColor, profileInitials } from "@/lib/format";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
+  import { showActionSheet } from "@/lib/actionSheet";
   import {
     distanceFromMiles,
     elevationFromFeet,
@@ -132,18 +133,13 @@ import { Feather } from "@expo/vector-icons";
     // now lives, since there was previously no entry point for it anywhere.
     const openProfileActions = () => {
       if (!profile) return;
-      Alert.alert(displayName(profile), undefined, [
+      showActionSheet(displayName(profile), [
+        { label: isBlocked ? "Unblock" : "Block", destructive: !isBlocked, onPress: handleBlock },
         {
-          text: isBlocked ? "Unblock" : "Block",
-          style: isBlocked ? "default" : "destructive",
-          onPress: handleBlock,
-        },
-        {
-          text: "Report account",
-          style: "destructive",
+          label: "Report account",
+          destructive: isBlocked,
           onPress: () => setReportTarget({ reportedUserId: id, label: "Report account" }),
         },
-        { text: "Cancel", style: "cancel" },
       ]);
     };
 

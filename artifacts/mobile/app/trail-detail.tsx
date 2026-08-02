@@ -25,6 +25,7 @@ import {
 } from "@/lib/units";
 import { fetchRatingStats, formatRatingDisplay, TrailRatingStats } from "@/lib/ratings";
 import TrailMap from "@/components/TrailMap";
+import { buildTrailTips } from "@/lib/trailTips";
 
 
 type Trail = {
@@ -263,9 +264,15 @@ export default function TrailDetailScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Good to know</Text>
-          <View style={styles.tipRow}><Feather name="clock" size={15} color={Colors.text3} /><Text style={styles.tipText}>Best visited early morning to avoid crowds</Text></View>
-          <View style={styles.tipRow}><Feather name="droplet" size={15} color={Colors.text3} /><Text style={styles.tipText}>Bring at least 2L of water per person</Text></View>
-          <View style={styles.tipRow}><Feather name="sun" size={15} color={Colors.text3} /><Text style={styles.tipText}>Check weather before heading out</Text></View>
+          {/* Derived per trail from distance, elevation, tags and the live
+              weather above. These were three identical literals on all 225
+              trails before. */}
+          {buildTrailTips(trail, distanceUnit, weather ? { temp: weather.temp, condition: weather.condition } : null).map(tip => (
+            <View key={tip.text} style={styles.tipRow}>
+              <Feather name={tip.icon} size={15} color={Colors.text3} />
+              <Text style={styles.tipText}>{tip.text}</Text>
+            </View>
+          ))}
         </View>
       </ScrollView>
 
