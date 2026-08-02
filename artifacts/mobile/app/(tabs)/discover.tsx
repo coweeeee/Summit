@@ -162,10 +162,17 @@ import { Feather } from "@expo/vector-icons";
 
     return (
       <View style={{ flex: 1 }}>
-        <View style={styles.searchBar}>
-          <Feather name="search" size={18} color={Colors.text3} />
-          <TextInput style={styles.searchInput} placeholder="Search people..." placeholderTextColor={Colors.text3} value={search} onChangeText={setSearch} />
-          {search.length > 0 && <Pressable onPress={() => setSearch("")}><Feather name="x" size={18} color={Colors.text3} /></Pressable>}
+        {/* searchBar is flex:1 so that on the Trails tab it fills whatever
+            width the filter buttons beside it leave over. Dropped straight
+            into this column it filled the remaining *height* instead, which
+            is what left a screen-tall search box above the list. searchRow
+            gives it a row to grow along, and the same margins as Trails. */}
+        <View style={styles.searchRow}>
+          <View style={styles.searchBar}>
+            <Feather name="search" size={18} color={Colors.text3} />
+            <TextInput style={styles.searchInput} placeholder="Search people..." placeholderTextColor={Colors.text3} value={search} onChangeText={setSearch} />
+            {search.length > 0 && <Pressable onPress={() => setSearch("")}><Feather name="x" size={18} color={Colors.text3} /></Pressable>}
+          </View>
         </View>
         {loading ? (
           <View style={styles.center}><ActivityIndicator color={Colors.accent} /></View>
