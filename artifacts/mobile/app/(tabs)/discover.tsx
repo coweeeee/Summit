@@ -24,7 +24,7 @@ import { Feather } from "@expo/vector-icons";
   import { formatDistance, formatElevation } from "@/lib/units";
   import { formatRatingDisplay } from "@/lib/ratings";
   import { sendPushNotification } from "@/lib/notifications";
-  import { getInitials } from "@/lib/format";
+  import { displayName, profileInitials } from "@/lib/format";
 
   const PAGE_SIZE = 20;
   const MAP_FETCH_LIMIT = 300;
@@ -134,7 +134,7 @@ import { Feather } from "@expo/vector-icons";
           targetUserId: user.id,
           type: "follow",
           title: "New follower",
-          body: `${profile?.full_name || "Someone"} started following you`,
+          body: `${displayName(profile)} started following you`,
           data: { userId: session.user.id },
         });
       }
@@ -166,10 +166,10 @@ import { Feather } from "@expo/vector-icons";
               return (
                 <Pressable key={user.id} style={({ pressed }) => [styles.personRow, { opacity: pressed ? 0.8 : 1 }]} onPress={() => router.push({ pathname: "/user-profile", params: { id: user.id } })}>
                   <View style={[styles.personAvatar, { backgroundColor: AVATAR_COLORS[idx % AVATAR_COLORS.length] }]}>
-                    <Text style={styles.personAvatarText}>{getInitials(user.full_name)}</Text>
+                    <Text style={styles.personAvatarText}>{profileInitials(user)}</Text>
                   </View>
                   <View style={styles.personInfo}>
-                    <Text style={styles.personName}>{user.full_name || "Anonymous Hiker"}</Text>
+                    <Text style={styles.personName}>{displayName(user)}</Text>
                     {user.bio ? <Text style={styles.personBio} numberOfLines={1}>{user.bio}</Text> : null}
                   </View>
                   <Pressable onPress={(e) => { e.stopPropagation?.(); toggleFollow(user); }} style={({ pressed }) => [styles.followBtn, isFollowing && styles.followingBtn, { opacity: pressed ? 0.7 : 1 }]}>

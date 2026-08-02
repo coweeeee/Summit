@@ -20,7 +20,7 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { USERNAME_RULE_HINT, isValidUsername, normalizeUsername } from "@/lib/username";
-import { getInitials } from "@/lib/format";
+import { profileInitials } from "@/lib/format";
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
@@ -341,7 +341,7 @@ export default function SettingsScreen() {
               <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
             ) : (
               <View style={styles.avatarFallback}>
-                <Text style={styles.avatarInitials}>{getInitials(profile?.full_name || null)}</Text>
+                <Text style={styles.avatarInitials}>{profileInitials(profile)}</Text>
               </View>
             )}
             <View style={styles.avatarEditBadge}>

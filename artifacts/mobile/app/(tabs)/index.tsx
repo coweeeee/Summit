@@ -21,7 +21,7 @@ import { Feather } from "@expo/vector-icons";
   import { useAuth } from "@/context/AuthContext";
   import { sendPushNotification } from "@/lib/notifications";
   import { formatDistance, formatElevation } from "@/lib/units";
-  import { getDiffColor, getInitials, timeAgo } from "@/lib/format";
+  import { ANONYMOUS_LABEL, displayName, getDiffColor, getInitials, timeAgo } from "@/lib/format";
 
   const PAGE_SIZE = 20;
   const REPORT_REASONS = ["Spam", "Harassment or bullying", "Inappropriate content", "Other"];
@@ -76,13 +76,13 @@ import { Feather } from "@expo/vector-icons";
       const userIds = [...new Set(hikesData.map((h: any) => h.user_id))];
       const hikeIds = hikesData.map((h: any) => h.id);
       const [profilesRes, photosRes, commentsRes, likesRes] = await Promise.all([
-        supabase.from("profiles").select("id, full_name").in("id", userIds),
+        supabase.from("profiles").select("id, full_name, username").in("id", userIds),
         supabase.from("hike_photos").select("hike_id, photo_url").in("hike_id", hikeIds),
         supabase.from("comments").select("hike_id").in("hike_id", hikeIds),
         supabase.from("likes").select("hike_id").in("hike_id", hikeIds),
       ]);
       const profileMap: Record<string, string> = {};
-      if (profilesRes.data) profilesRes.data.forEach((p: any) => { profileMap[p.id] = p.full_name || "Anonymous"; });
+      if (profilesRes.data) profilesRes.data.forEach((p: any) => { profileMap[p.id] = displayName(p); });
       const photoMap: Record<string, string[]> = {};
       if (photosRes.data) photosRes.data.forEach((p: any) => {
         if (!photoMap[p.hike_id]) photoMap[p.hike_id] = [];
@@ -95,7 +95,7 @@ import { Feather } from "@expo/vector-icons";
       setLikeCounts(prev => ({ ...prev, ...counts }));
       setHasMore(hikesData.length === PAGE_SIZE);
       return hikesData.map((h: any) => ({
-        ...h, userName: profileMap[h.user_id] || "Anonymous",
+        ...h, userName: profileMap[h.user_id] || ANONYMOUS_LABEL,
         photos: photoMap[h.id] || [], commentCount: commentMap[h.id] || 0,
       }));
     };
@@ -167,7 +167,7 @@ import { Feather } from "@expo/vector-icons";
             targetUserId: hike.user_id,
             type: "like",
             title: "New like",
-            body: `${profile?.full_name || "Someone"} liked your hike on ${hike.trail_name || "a trail"}`,
+            body: `${displayName(profile)} liked your hike on ${hike.trail_name || "a trail"}`,
             data: { hikeId },
             hikeId,
           });

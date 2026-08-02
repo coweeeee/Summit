@@ -17,7 +17,7 @@ import { Feather } from "@expo/vector-icons";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
   import { sendPushNotification } from "@/lib/notifications";
-  import { formatShortDate, getDiffColor, getInitials } from "@/lib/format";
+  import { displayName, formatShortDate, getDiffColor, profileInitials } from "@/lib/format";
   import {
     distanceFromMiles,
     elevationFromFeet,
@@ -117,7 +117,7 @@ import { Feather } from "@expo/vector-icons";
             targetUserId: id,
             type: "follow",
             title: "New follower",
-            body: `${myProfile?.full_name || "Someone"} started following you`,
+            body: `${displayName(myProfile)} started following you`,
             data: { userId: session.user.id },
           });
         }
@@ -127,7 +127,7 @@ import { Feather } from "@expo/vector-icons";
 
     const handleBlock = () => {
       if (!session) return;
-      const name = profile?.full_name || "this user";
+      const name = displayName(profile);
       if (isBlocked) {
         Alert.alert("Unblock " + name + "?", "They will be able to see your posts again.", [
           { text: "Cancel", style: "cancel" },
@@ -184,7 +184,7 @@ import { Feather } from "@expo/vector-icons";
           <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}>
             <Feather name="chevron-left" size={28} color={Colors.text} />
           </Pressable>
-          <Text style={styles.headerTitle} numberOfLines={1}>{profile.full_name || profile.username || "Profile"}</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>{displayName(profile)}</Text>
           {!isOwnProfile ? (
             <Pressable
               onPress={handleBlock}
@@ -205,7 +205,7 @@ import { Feather } from "@expo/vector-icons";
                 <Image source={{ uri: profile.avatar_url }} style={styles.avatarImg} />
               ) : (
                 <View style={styles.avatarFallback}>
-                  <Text style={styles.avatarText}>{getInitials(profile.full_name)}</Text>
+                  <Text style={styles.avatarText}>{profileInitials(profile)}</Text>
                 </View>
               )}
               {targetIsPrivate && (
@@ -214,8 +214,12 @@ import { Feather } from "@expo/vector-icons";
                 </View>
               )}
             </View>
-            <Text style={styles.name}>{profile.full_name || "Anonymous Hiker"}</Text>
-            {profile.username ? <Text style={styles.username}>@{profile.username}</Text> : null}
+            <Text style={styles.name}>{displayName(profile)}</Text>
+            {/* Only a secondary line when there is a real name above it —
+                otherwise displayName has already rendered the handle. */}
+            {profile.full_name && profile.username
+              ? <Text style={styles.username}>@{profile.username}</Text>
+              : null}
             {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
 
             {/* Stats — always visible */}
