@@ -5,14 +5,12 @@ import { Feather } from "@expo/vector-icons";
   import {
     ActivityIndicator,
     FlatList,
-    Modal,
     Platform,
     Pressable,
     RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
-    TextInput,
     View,
   } from "react-native";
   import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,10 +20,9 @@ import { Feather } from "@expo/vector-icons";
   import { sendPushNotification } from "@/lib/notifications";
   import { formatDistance, formatElevation } from "@/lib/units";
   import { ANONYMOUS_LABEL, displayName, getDiffColor, getInitials, timeAgo } from "@/lib/format";
+  import ReportModal, { ReportTarget } from "@/components/ReportModal";
 
   const PAGE_SIZE = 20;
-  const REPORT_REASONS = ["Spam", "Harassment or bullying", "Inappropriate content", "Other"];
-
   type FeedHike = {
     id: string; trail_name: string; location: string; distance_mi: number;
     elevation_ft: number; duration_hr: number | null; difficulty: string;
@@ -53,10 +50,7 @@ import { Feather } from "@expo/vector-icons";
     const [hasMore, setHasMore] = useState(true);
     const offsetRef = useRef(0);
 
-    const [reportModal, setReportModal] = useState<{ hikeId: string; reportedUserId: string } | null>(null);
-    const [reportReason, setReportReason] = useState("");
-    const [reportDetails, setReportDetails] = useState("");
-    const [reportSubmitting, setReportSubmitting] = useState(false);
+    const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
     const [toast, setToast] = useState("");
 
     const showToast = (msg: string) => {
@@ -188,23 +182,6 @@ import { Feather } from "@expo/vector-icons";
       }
     };
 
-    const submitReport = async () => {
-      if (!session || !reportModal || !reportReason) return;
-      setReportSubmitting(true);
-      await supabase.from("reports").insert({
-        reporter_id: session.user.id,
-        reported_user_id: reportModal.reportedUserId,
-        hike_id: reportModal.hikeId,
-        reason: reportReason,
-        details: reportDetails.trim() || null,
-      });
-      setReportSubmitting(false);
-      setReportModal(null);
-      setReportReason("");
-      setReportDetails("");
-      showToast("Report submitted — our team will review it");
-    };
-
     // Blocks are enforced by RLS via can_view_user_content, so a blocked user's
     // hikes never reach the client. Filtering here as well only made pages
     // render short, since it ran after pagination.
@@ -306,7 +283,7 @@ import { Feather } from "@expo/vector-icons";
                 <Feather name="bookmark" size={15} color={isTrailBookmarked ? Colors.accent : Colors.text3} />
               </Pressable>
               <Pressable
-                onPress={(e) => { e.stopPropagation?.(); setReportModal({ hikeId: hike.id, reportedUserId: hike.user_id }); }}
+                onPress={(e) => { e.stopPropagation?.(); setReportTarget({ hikeId: hike.id, reportedUserId: hike.user_id, label: "Report post" }); }}
                 disabled={isOwnHike}
                 style={[styles.actionBtn, isOwnHike && styles.actionBtnHidden]}
               >
@@ -358,37 +335,12 @@ import { Feather } from "@expo/vector-icons";
           />
         )}
 
-        {/* Report modal */}
-        <Modal visible={!!reportModal} transparent animationType="fade">
-          <Pressable style={styles.modalOverlay} onPress={() => { setReportModal(null); setReportReason(""); setReportDetails(""); }}>
-            <Pressable style={styles.reportSheet} onPress={() => {}}>
-              <Text style={styles.reportTitle}>Report post</Text>
-              <Text style={styles.reportSub}>Why are you reporting this?</Text>
-              {REPORT_REASONS.map(r => (
-                <Pressable key={r} onPress={() => setReportReason(r)} style={[styles.reasonRow, reportReason === r && styles.reasonRowActive]}>
-                  <Text style={[styles.reasonText, reportReason === r && styles.reasonTextActive]}>{r}</Text>
-                  {reportReason === r && <Feather name="check" size={15} color={Colors.accent} />}
-                </Pressable>
-              ))}
-              <TextInput
-                style={styles.reportDetailsInput}
-                placeholder="Additional details (optional)"
-                placeholderTextColor={Colors.text3}
-                value={reportDetails}
-                onChangeText={setReportDetails}
-                multiline
-                maxLength={300}
-              />
-              <Pressable
-                onPress={submitReport}
-                disabled={!reportReason || reportSubmitting}
-                style={[styles.submitReportBtn, (!reportReason || reportSubmitting) && { opacity: 0.5 }]}
-              >
-                <Text style={styles.submitReportText}>{reportSubmitting ? "Submitting…" : "Submit Report"}</Text>
-              </Pressable>
-            </Pressable>
-          </Pressable>
-        </Modal>
+        <ReportModal
+          target={reportTarget}
+          reporterId={session?.user.id}
+          onClose={() => setReportTarget(null)}
+          onSubmitted={() => showToast("Report submitted — our team will review it")}
+        />
 
         {/* Toast */}
         {!!toast && (
@@ -454,17 +406,6 @@ import { Feather } from "@expo/vector-icons";
     // action-row layout as everyone else's.
     actionBtnHidden: { opacity: 0 },
     actionCount: { fontSize: 13, color: Colors.text3, fontFamily: "Inter_500Medium" },
-    modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.65)", justifyContent: "flex-end" },
-    reportSheet: { backgroundColor: Colors.bg2, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 40, gap: 4 },
-    reportTitle: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.text, marginBottom: 2 },
-    reportSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, marginBottom: 12 },
-    reasonRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, marginBottom: 6, backgroundColor: Colors.bg3 },
-    reasonRowActive: { borderColor: Colors.accent, backgroundColor: "rgba(141,207,122,0.08)" },
-    reasonText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text2 },
-    reasonTextActive: { color: Colors.accent, fontFamily: "Inter_600SemiBold" },
-    reportDetailsInput: { marginTop: 8, backgroundColor: Colors.bg3, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, padding: 12, fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text, minHeight: 70, textAlignVertical: "top" },
-    submitReportBtn: { marginTop: 14, backgroundColor: Colors.red, borderRadius: 12, paddingVertical: 14, alignItems: "center" },
-    submitReportText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#fff" },
     toast: { position: "absolute", bottom: 100, left: 20, right: 20, backgroundColor: "rgba(30,40,30,0.95)", borderRadius: 12, padding: 14, alignItems: "center", borderWidth: 1, borderColor: Colors.border },
     toastText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.accent, textAlign: "center" },
   });

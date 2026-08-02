@@ -6,7 +6,6 @@ import { Feather } from "@expo/vector-icons";
     Alert,
     Image,
     KeyboardAvoidingView,
-    Modal,
     Platform,
     Pressable,
     ScrollView,
@@ -23,6 +22,7 @@ import { Feather } from "@expo/vector-icons";
   import { sendPushNotification } from "@/lib/notifications";
   import { formatDistance, formatElevation } from "@/lib/units";
   import { ANONYMOUS_LABEL, displayName, formatFullDate, getDiffColor, getInitials, timeAgo } from "@/lib/format";
+  import ReportModal, { ReportTarget } from "@/components/ReportModal";
 
   type HikeDetail = {
     id: string; trail_name: string; location: string; distance_mi: number;
@@ -32,8 +32,6 @@ import { Feather } from "@expo/vector-icons";
   };
 
   type Comment = { id: string; content: string; created_at: string; user_id: string; userName: string; };
-
-  const REPORT_REASONS = ["Spam", "Harassment or bullying", "Inappropriate content", "Other"];
 
   export default function HikeDetailScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -56,15 +54,10 @@ import { Feather } from "@expo/vector-icons";
     const [deleting, setDeleting] = useState(false);
     const scrollRef = useRef<ScrollView>(null);
 
-    const [reportModal, setReportModal] = useState<{ hikeId?: string; commentId?: string; reportedUserId: string; label: string } | null>(null);
-    const [reportReason, setReportReason] = useState("");
-    const [reportDetails, setReportDetails] = useState("");
-    const [reportSubmitting, setReportSubmitting] = useState(false);
+    const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
     const [toast, setToast] = useState("");
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3500); };
-
-    const closeReport = () => { setReportModal(null); setReportReason(""); setReportDetails(""); };
 
     useEffect(() => {
       const load = async () => {
@@ -202,22 +195,6 @@ import { Feather } from "@expo/vector-icons";
       setComments(prev => prev.filter(c => c.id !== commentId));
     };
 
-    const submitReport = async () => {
-      if (!session || !reportModal || !reportReason) return;
-      setReportSubmitting(true);
-      await supabase.from("reports").insert({
-        reporter_id: session.user.id,
-        reported_user_id: reportModal.reportedUserId,
-        hike_id: reportModal.hikeId || null,
-        comment_id: reportModal.commentId || null,
-        reason: reportReason,
-        details: reportDetails.trim() || null,
-      });
-      setReportSubmitting(false);
-      closeReport();
-      showToast("Report submitted — our team will review it");
-    };
-
     const visibleComments = comments.filter(c => !blockedSet.has(c.user_id));
 
     if (loading) return <View style={[styles.container, styles.center]}><ActivityIndicator color={Colors.accent} size="large" /></View>;
@@ -235,7 +212,7 @@ import { Feather } from "@expo/vector-icons";
           <Text style={styles.headerTitle} numberOfLines={1}>{hike.trail_name}</Text>
           {!isOwnHike ? (
             <Pressable
-              onPress={() => setReportModal({ hikeId: id, reportedUserId: hike.user_id, label: "Report post" })}
+              onPress={() => setReportTarget({ hikeId: id, reportedUserId: hike.user_id, label: "Report post" })}
               style={({ pressed }) => [styles.headerAction, { opacity: pressed ? 0.6 : 1 }]}
             >
               <Feather name="flag" size={18} color={Colors.text3} />
@@ -343,7 +320,7 @@ import { Feather } from "@expo/vector-icons";
                           <Feather name="trash-2" size={13} color={Colors.text3} />
                         </Pressable>
                       ) : (
-                        <Pressable onPress={() => setReportModal({ commentId: c.id, reportedUserId: c.user_id, label: "Report comment" })}>
+                        <Pressable onPress={() => setReportTarget({ commentId: c.id, reportedUserId: c.user_id, label: "Report comment" })}>
                           <Feather name="flag" size={13} color={Colors.text3} />
                         </Pressable>
                       )}
@@ -371,37 +348,12 @@ import { Feather } from "@expo/vector-icons";
           </Pressable>
         </View>
 
-        {/* Report modal */}
-        <Modal visible={!!reportModal} transparent animationType="fade">
-          <Pressable style={styles.modalOverlay} onPress={closeReport}>
-            <Pressable style={styles.reportSheet} onPress={() => {}}>
-              <Text style={styles.reportTitle}>{reportModal?.label || "Report"}</Text>
-              <Text style={styles.reportSub}>Why are you reporting this?</Text>
-              {REPORT_REASONS.map(r => (
-                <Pressable key={r} onPress={() => setReportReason(r)} style={[styles.reasonRow, reportReason === r && styles.reasonRowActive]}>
-                  <Text style={[styles.reasonText, reportReason === r && styles.reasonTextActive]}>{r}</Text>
-                  {reportReason === r && <Feather name="check" size={15} color={Colors.accent} />}
-                </Pressable>
-              ))}
-              <TextInput
-                style={styles.reportDetailsInput}
-                placeholder="Additional details (optional)"
-                placeholderTextColor={Colors.text3}
-                value={reportDetails}
-                onChangeText={setReportDetails}
-                multiline
-                maxLength={300}
-              />
-              <Pressable
-                onPress={submitReport}
-                disabled={!reportReason || reportSubmitting}
-                style={[styles.submitReportBtn, (!reportReason || reportSubmitting) && { opacity: 0.5 }]}
-              >
-                <Text style={styles.submitReportText}>{reportSubmitting ? "Submitting…" : "Submit Report"}</Text>
-              </Pressable>
-            </Pressable>
-          </Pressable>
-        </Modal>
+        <ReportModal
+          target={reportTarget}
+          reporterId={session?.user.id}
+          onClose={() => setReportTarget(null)}
+          onSubmitted={() => showToast("Report submitted — our team will review it")}
+        />
 
         {!!toast && (
           <View style={styles.toast} pointerEvents="none">
@@ -466,17 +418,6 @@ import { Feather } from "@expo/vector-icons";
     commentField: { flex: 1, backgroundColor: Colors.bg3, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10, fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text, maxHeight: 80 },
     postBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.green2, alignItems: "center", justifyContent: "center" },
     emptyText: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3 },
-    modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.65)", justifyContent: "flex-end" },
-    reportSheet: { backgroundColor: Colors.bg2, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 40, gap: 4 },
-    reportTitle: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.text, marginBottom: 2 },
-    reportSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, marginBottom: 12 },
-    reasonRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, marginBottom: 6, backgroundColor: Colors.bg3 },
-    reasonRowActive: { borderColor: Colors.accent, backgroundColor: "rgba(141,207,122,0.08)" },
-    reasonText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text2 },
-    reasonTextActive: { color: Colors.accent, fontFamily: "Inter_600SemiBold" },
-    reportDetailsInput: { marginTop: 8, backgroundColor: Colors.bg3, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, padding: 12, fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text, minHeight: 70, textAlignVertical: "top" },
-    submitReportBtn: { marginTop: 14, backgroundColor: Colors.red, borderRadius: 12, paddingVertical: 14, alignItems: "center" },
-    submitReportText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#fff" },
     toast: { position: "absolute", bottom: 100, left: 20, right: 20, backgroundColor: "rgba(30,40,30,0.95)", borderRadius: 12, padding: 14, alignItems: "center", borderWidth: 1, borderColor: Colors.border },
     toastText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.accent, textAlign: "center" },
   });
