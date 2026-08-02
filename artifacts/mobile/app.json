@@ -36,14 +36,6 @@
           "cameraPermission": false,
           "microphonePermission": false
         }
-      ],
-      [
-        "expo-location",
-        {
-          "locationWhenInUsePermission": false,
-          "locationAlwaysPermission": false,
-          "locationAlwaysAndWhenInUsePermission": false
-        }
       ]
     ],
     "experiments": {
