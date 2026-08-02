@@ -27,6 +27,16 @@ type LeaderEntry = {
   rank: number;
 };
 
+// One row per hiker from the `leaderboard_totals(since timestamptz)` RPC.
+// avg_score is COALESCEd to 0 server-side, so there is no null case to handle.
+type LeaderboardTotal = {
+  user_id: string;
+  hike_count: number;
+  total_miles: number;
+  total_elevation_ft: number;
+  avg_score: number;
+};
+
 type Category = {
   key: string;
   label: string;
@@ -66,45 +76,40 @@ export default function LeaderboardScreen() {
   const fetchLeaders = async () => {
     setLoading(true);
 
-    let query = supabase.from("hikes").select("user_id, distance_mi, elevation_ft, overall_score");
-    if (timePeriod === "week") {
-      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      query = query.gte("date", weekAgo);
-    }
+    // `leaderboard_totals` is SECURITY INVOKER, so RLS on `hikes` evaluates as
+    // the viewer: a private account's hikes still only count towards the totals
+    // of people who follow them, exactly as when this aggregated client-side.
+    // One call covers all four categories, so switching tabs needs no refetch.
+    const since =
+      timePeriod === "week"
+        ? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        : null;
 
-    const { data: hikesData } = await query;
-    if (!hikesData) { setLoading(false); return; }
+    const { data, error } = await supabase.rpc("leaderboard_totals", { since });
+    const totals = (data ?? []) as LeaderboardTotal[];
+    if (error) { setLoading(false); setRefreshing(false); return; }
 
-    // Aggregate by user
-    const userMap: Record<string, { hikes: number; miles: number; elevation: number; scores: number[]; }> = {};
-    hikesData.forEach((h: any) => {
-      if (!userMap[h.user_id]) userMap[h.user_id] = { hikes: 0, miles: 0, elevation: 0, scores: [] };
-      userMap[h.user_id].hikes += 1;
-      userMap[h.user_id].miles += h.distance_mi || 0;
-      userMap[h.user_id].elevation += h.elevation_ft || 0;
-      if (h.overall_score > 0) userMap[h.user_id].scores.push(h.overall_score);
-    });
-
-    const userIds = Object.keys(userMap);
-    if (userIds.length === 0) { setLeaders([]); setLoading(false); return; }
+    const userIds = totals.map(t => t.user_id);
+    if (userIds.length === 0) { setLeaders([]); setMyRank(null); setLoading(false); setRefreshing(false); return; }
 
     const { data: profiles } = await supabase.from("profiles").select("id, full_name, avatar_url").in("id", userIds);
     const profileMap: Record<string, any> = {};
     if (profiles) profiles.forEach((p: any) => { profileMap[p.id] = p; });
 
-    const getValue = (uid: string) => {
-      const u = userMap[uid];
+    // PostgREST can hand numeric/bigint back as strings, so coerce before any
+    // arithmetic or sorting rather than relying on JS coercion.
+    const getValue = (t: LeaderboardTotal) => {
       switch (activeCategory) {
-        case "hikes": return u.hikes;
-        case "miles": return Math.round(u.miles * 10) / 10;
-        case "elevation": return u.elevation;
-        case "score": return u.scores.length > 0 ? Math.round((u.scores.reduce((a, b) => a + b, 0) / u.scores.length) * 10) / 10 : 0;
+        case "hikes": return Number(t.hike_count);
+        case "miles": return Math.round(Number(t.total_miles) * 10) / 10;
+        case "elevation": return Number(t.total_elevation_ft);
+        case "score": return Math.round(Number(t.avg_score) * 10) / 10;
         default: return 0;
       }
     };
 
-    const sorted = userIds
-      .map(uid => ({ id: uid, value: getValue(uid), ...profileMap[uid] }))
+    const sorted = totals
+      .map(t => ({ id: t.user_id, value: getValue(t), ...profileMap[t.user_id] }))
       .filter(u => u.value > 0)
       .sort((a, b) => b.value - a.value)
       .slice(0, 20)
