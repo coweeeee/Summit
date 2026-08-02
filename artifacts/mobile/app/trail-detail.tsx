@@ -17,7 +17,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
-import { formatDistance, formatElevation } from "@/lib/units";
+import {
+  DistanceUnit,
+  formatDistance,
+  formatElevation,
+  openMeteoUnitParams,
+  temperatureUnitLabel,
+  windSpeedUnitLabel,
+} from "@/lib/units";
 import { fetchRatingStats, formatRatingDisplay, TrailRatingStats } from "@/lib/ratings";
 
 const isExpoGo = Constants.appOwnership === "expo";
@@ -121,6 +128,7 @@ export default function TrailDetailScreen() {
   const [actionLoading, setActionLoading] = useState(false);
   const [weather, setWeather] = useState<Weather | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [ratingStats, setRatingStats] = useState<TrailRatingStats | undefined>(undefined);
   const [ratingStatsFailed, setRatingStatsFailed] = useState(false);
 
@@ -131,7 +139,7 @@ export default function TrailDetailScreen() {
         setTrail(data);
         const { count } = await supabase.from("hikes").select("*", { count: "exact", head: true }).eq("trail_id", data.id);
         setLogCount(count || 0);
-        if (data.lat && data.lng) fetchWeather(data.lat, data.lng);
+        if (data.lat && data.lng) setCoords({ lat: data.lat, lng: data.lng });
         const { map, failed } = await fetchRatingStats([data.id]);
         setRatingStats(map.get(data.id));
         setRatingStatsFailed(failed);
@@ -145,10 +153,19 @@ export default function TrailDetailScreen() {
     fetchTrail();
   }, [id]);
 
-  const fetchWeather = async (lat: number, lng: number) => {
+  // Open-Meteo converts server-side, so the request carries the viewer's unit
+  // preference rather than the response being converted here. This used to be
+  // pinned to fahrenheit/mph, so a metric user saw km everywhere else in the
+  // app and Fahrenheit here.
+  useEffect(() => {
+    if (coords) fetchWeather(coords.lat, coords.lng, distanceUnit);
+  }, [coords, distanceUnit]);
+
+  const fetchWeather = async (lat: number, lng: number, unit: DistanceUnit) => {
     setWeatherLoading(true);
     try {
-      const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph`);
+      const units = openMeteoUnitParams(unit);
+      const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&temperature_unit=${units.temperature}&wind_speed_unit=${units.windSpeed}`);
       const data = await res.json();
       const c = data.current;
       setWeather({
@@ -235,12 +252,12 @@ export default function TrailDetailScreen() {
               <View style={styles.weatherCard}>
                 <Text style={styles.weatherIcon}>{weather.icon}</Text>
                 <View style={styles.weatherInfo}>
-                  <Text style={styles.weatherTemp}>{weather.temp}°F</Text>
+                  <Text style={styles.weatherTemp}>{weather.temp}{temperatureUnitLabel(distanceUnit)}</Text>
                   <Text style={styles.weatherCondition}>{weather.condition}</Text>
-                  <Text style={styles.weatherSub}>Feels like {weather.feelsLike}°F</Text>
+                  <Text style={styles.weatherSub}>Feels like {weather.feelsLike}{temperatureUnitLabel(distanceUnit)}</Text>
                 </View>
                 <View style={styles.weatherStats}>
-                  <View style={styles.weatherStat}><Feather name="wind" size={13} color={Colors.text3} /><Text style={styles.weatherStatText}>{weather.windSpeed} mph</Text></View>
+                  <View style={styles.weatherStat}><Feather name="wind" size={13} color={Colors.text3} /><Text style={styles.weatherStatText}>{weather.windSpeed} {windSpeedUnitLabel(distanceUnit)}</Text></View>
                   <View style={styles.weatherStat}><Feather name="droplet" size={13} color={Colors.text3} /><Text style={styles.weatherStatText}>{weather.humidity}%</Text></View>
                 </View>
               </View>

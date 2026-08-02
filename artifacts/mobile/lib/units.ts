@@ -29,6 +29,24 @@ export function elevationUnitLabel(unit: DistanceUnit): string {
   return unit === "metric" ? "m" : "ft";
 }
 
+// Weather is fetched already converted rather than converted here: Open-Meteo
+// takes the unit as a request parameter, so there is no round trip through a
+// canonical storage unit the way distance and elevation have.
+export function temperatureUnitLabel(unit: DistanceUnit): string {
+  return unit === "metric" ? "°C" : "°F";
+}
+
+export function windSpeedUnitLabel(unit: DistanceUnit): string {
+  return unit === "metric" ? "km/h" : "mph";
+}
+
+/** Open-Meteo's own parameter spellings for the viewer's preference. */
+export function openMeteoUnitParams(unit: DistanceUnit): { temperature: string; windSpeed: string } {
+  return unit === "metric"
+    ? { temperature: "celsius", windSpeed: "kmh" }
+    : { temperature: "fahrenheit", windSpeed: "mph" };
+}
+
 // Distance and elevation are always stored in miles/feet. These convert
 // between storage and whatever the user is currently typing or reading, so a
 // metric user's "10" means 10 km on the way in and reads back as 10 km.
