@@ -7,17 +7,49 @@
 // report is actually seen. Triage still happens in the Supabase dashboard.
 //
 // Deploy with verify_jwt = false: the caller is Postgres, not a signed-in user.
-// Authorization is instead an exact match on the service role key, which the
-// Database Webhook sends as its bearer token. verify_jwt = true would NOT be
-// sufficient here, since any signed-in user's JWT would also satisfy it.
+// verify_jwt = true would not be sufficient anyway, since any signed-in user's
+// JWT satisfies it. Authorization is an exact match against a project secret.
 //
-// Required secret: REPORT_ALERT_WEBHOOK_URL (a Slack or Discord incoming
-// webhook). Without it the function is inert and reports nothing.
+// WHICH secret matters, because this project runs Supabase's dual API-key
+// system. `SUPABASE_SERVICE_ROLE_KEY` in the edge runtime is the new-format
+// `sb_secret_...` key (41 chars), while a Database Webhook created from the
+// dashboard stored the *legacy* service-role JWT (219 chars, `eyJ...`) in its
+// trigger definition. Those are two different credentials, not two encodings of
+// one, so that webhook could never match the env var and every delivery 401'd.
+//
+// Fix it from either end: re-enter the webhook's Authorization header with the
+// new secret key, or set REPORT_ALERT_SECRET and send that instead. Prefer the
+// second — it is scoped to this one function, survives key rotation, and avoids
+// parking a full service-role credential in a trigger definition that anyone
+// with database access can read.
+//
+// Secrets: REPORT_ALERT_WEBHOOK_URL (required, a Slack or Discord incoming
+// webhook) and REPORT_ALERT_SECRET (optional, a dedicated shared secret).
 
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+const ALERT_SECRET = Deno.env.get('REPORT_ALERT_SECRET')
 const ALERT_WEBHOOK_URL = Deno.env.get('REPORT_ALERT_WEBHOOK_URL')
 
 const DETAILS_MAX = 500
+
+// Compares in time independent of how far the two strings agree, so a near miss
+// can't be walked forward by timing it. Both operands are project secrets.
+function secretEquals(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
+}
+
+// Accepts only an exact match against a secret this project holds. A user's
+// JWT — anon, authenticated, or otherwise — matches neither and is rejected.
+function isAuthorized(req: Request): boolean {
+  const presented = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+  if (!presented) return false
+  if (SERVICE_ROLE_KEY && secretEquals(presented, SERVICE_ROLE_KEY)) return true
+  if (ALERT_SECRET && secretEquals(presented, ALERT_SECRET)) return true
+  return false
+}
 
 type ReportRecord = {
   id?: string
@@ -42,8 +74,18 @@ Deno.serve(async req => {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 })
   }
 
-  const auth = req.headers.get('Authorization') ?? ''
-  if (auth !== `Bearer ${SERVICE_ROLE_KEY}`) {
+  if (!isAuthorized(req)) {
+    // Shapes only, never values. A 401 here is almost always a credential
+    // *format* mismatch rather than an attack, and without this the only way to
+    // tell the two apart is to redeploy a diagnostic.
+    const presented = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+    console.error('rejected call to report-alert', JSON.stringify({
+      presented_len: presented.length,
+      presented_prefix: presented.slice(0, 3),
+      service_role_key_len: SERVICE_ROLE_KEY?.length ?? 0,
+      service_role_key_prefix: SERVICE_ROLE_KEY?.slice(0, 3) ?? null,
+      alert_secret_configured: !!ALERT_SECRET,
+    }))
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   }
 
