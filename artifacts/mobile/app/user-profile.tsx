@@ -18,6 +18,7 @@ import { Feather } from "@expo/vector-icons";
   import { useAuth } from "@/context/AuthContext";
   import { sendPushNotification } from "@/lib/notifications";
   import { displayName, formatShortDate, getDiffColor, profileInitials } from "@/lib/format";
+  import ReportModal, { ReportTarget } from "@/components/ReportModal";
   import {
     distanceFromMiles,
     elevationFromFeet,
@@ -54,6 +55,7 @@ import { Feather } from "@expo/vector-icons";
     const [isBlocked, setIsBlocked] = useState(false);
     const [blockedByThem, setBlockedByThem] = useState(false);
     const [blockLoading, setBlockLoading] = useState(false);
+    const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
 
     useEffect(() => {
       const load = async () => {
@@ -125,6 +127,26 @@ import { Feather } from "@expo/vector-icons";
       setFollowLoading(false);
     };
 
+    // The header icon is a "more" affordance, so it opens the actions rather
+    // than firing block directly -- which is also where reporting an account
+    // now lives, since there was previously no entry point for it anywhere.
+    const openProfileActions = () => {
+      if (!profile) return;
+      Alert.alert(displayName(profile), undefined, [
+        {
+          text: isBlocked ? "Unblock" : "Block",
+          style: isBlocked ? "default" : "destructive",
+          onPress: handleBlock,
+        },
+        {
+          text: "Report account",
+          style: "destructive",
+          onPress: () => setReportTarget({ reportedUserId: id, label: "Report account" }),
+        },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    };
+
     const handleBlock = () => {
       if (!session) return;
       const name = displayName(profile);
@@ -187,7 +209,7 @@ import { Feather } from "@expo/vector-icons";
           <Text style={styles.headerTitle} numberOfLines={1}>{displayName(profile)}</Text>
           {!isOwnProfile ? (
             <Pressable
-              onPress={handleBlock}
+              onPress={openProfileActions}
               disabled={blockLoading}
               style={({ pressed }) => [styles.moreBtn, { opacity: pressed || blockLoading ? 0.6 : 1 }]}
             >
@@ -335,6 +357,13 @@ import { Feather } from "@expo/vector-icons";
             </>
           )}
         </ScrollView>
+
+        <ReportModal
+          target={reportTarget}
+          reporterId={session?.user.id}
+          onClose={() => setReportTarget(null)}
+          onSubmitted={() => Alert.alert("Report submitted", "Thanks — our team will review it.")}
+        />
       </View>
     );
   }

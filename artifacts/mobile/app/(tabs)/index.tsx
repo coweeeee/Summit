@@ -291,19 +291,27 @@ import { Feather } from "@expo/vector-icons";
                 <Feather name="heart" size={15} color={isLiked ? Colors.red : Colors.text3} />
                 {likeCount > 0 && <Text style={[styles.actionCount, isLiked && { color: Colors.red }]}>{likeCount}</Text>}
               </Pressable>
-              {hike.trail_id && (
-                <Pressable onPress={(e) => toggleTrailBookmark(e, hike.trail_id!)} style={styles.actionBtn}>
-                  <Feather name="bookmark" size={15} color={isTrailBookmarked ? Colors.accent : Colors.text3} />
-                </Pressable>
-              )}
-              {!isOwnHike && (
-                <Pressable
-                  onPress={(e) => { e.stopPropagation?.(); setReportModal({ hikeId: hike.id, reportedUserId: hike.user_id }); }}
-                  style={styles.actionBtn}
-                >
-                  <Feather name="flag" size={14} color={Colors.text3} />
-                </Pressable>
-              )}
+              {/* Both slots always render. They used to be conditional, so the
+                  action row changed length card to card -- a hike with no
+                  catalog trail lost its bookmark, and your own hikes lost the
+                  flag, which read as the same slot showing different icons.
+                  The bookmark saves the linked *trail*, so it is inert when a
+                  hike has none; the flag is hidden on your own hikes because
+                  reporting yourself is meaningless. */}
+              <Pressable
+                onPress={(e) => hike.trail_id && toggleTrailBookmark(e, hike.trail_id)}
+                disabled={!hike.trail_id}
+                style={[styles.actionBtn, !hike.trail_id && styles.actionBtnDisabled]}
+              >
+                <Feather name="bookmark" size={15} color={isTrailBookmarked ? Colors.accent : Colors.text3} />
+              </Pressable>
+              <Pressable
+                onPress={(e) => { e.stopPropagation?.(); setReportModal({ hikeId: hike.id, reportedUserId: hike.user_id }); }}
+                disabled={isOwnHike}
+                style={[styles.actionBtn, isOwnHike && styles.actionBtnHidden]}
+              >
+                <Feather name="flag" size={14} color={Colors.text3} />
+              </Pressable>
             </View>
           </View>
         </Pressable>
@@ -440,6 +448,11 @@ import { Feather } from "@expo/vector-icons";
     userTime: { fontSize: 11, color: Colors.text3 },
     actions: { flexDirection: "row", alignItems: "center", gap: 4 },
     actionBtn: { flexDirection: "row", alignItems: "center", gap: 4, padding: 6 },
+    // Dimmed but present: a hike with no catalog trail has nothing to save.
+    actionBtnDisabled: { opacity: 0.25 },
+    // Invisible but still occupying its slot, so your own hikes keep the same
+    // action-row layout as everyone else's.
+    actionBtnHidden: { opacity: 0 },
     actionCount: { fontSize: 13, color: Colors.text3, fontFamily: "Inter_500Medium" },
     modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.65)", justifyContent: "flex-end" },
     reportSheet: { backgroundColor: Colors.bg2, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 40, gap: 4 },
