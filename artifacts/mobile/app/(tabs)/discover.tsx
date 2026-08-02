@@ -75,7 +75,9 @@ import { Feather } from "@expo/vector-icons";
 
     const fetchUsers = async (query: string) => {
       setLoading(true);
-      let req = supabase.from("profiles").select("*").neq("id", session?.user.id || "").limit(20);
+      // Only the columns the UserProfile type declares — `select("*")` also
+      // pulled every listed user's notification and unit preferences.
+      let req = supabase.from("profiles").select("id, full_name, username, bio, is_private").neq("id", session?.user.id || "").limit(20);
       // Search name or username — username is the login identity and the handle
       // shown on profiles, and accounts with no full_name are only findable this way.
       if (query.trim()) req = req.or(`full_name.ilike.%${query}%,username.ilike.%${query}%`);

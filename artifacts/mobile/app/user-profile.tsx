@@ -58,7 +58,10 @@ import { Feather } from "@expo/vector-icons";
     useEffect(() => {
       const load = async () => {
         const [{ data: p }, { data: h }] = await Promise.all([
-          supabase.from("profiles").select("*").eq("id", id).single(),
+          // Only the columns the Profile type declares — `select("*")` also
+          // pulled this user's notification and unit preferences, which are
+          // nobody else's business.
+          supabase.from("profiles").select("id, full_name, bio, avatar_url, username, is_private").eq("id", id).single(),
           supabase.from("hikes").select("*").eq("user_id", id).order("date", { ascending: false }).limit(20),
         ]);
         if (p) {
