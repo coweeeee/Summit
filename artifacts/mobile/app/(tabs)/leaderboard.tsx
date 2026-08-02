@@ -27,14 +27,14 @@ type LeaderEntry = {
   rank: number;
 };
 
-// One row per hiker from the `leaderboard_totals(since timestamptz)` RPC.
-// avg_score is COALESCEd to 0 server-side, so there is no null case to handle.
+// One row per hiker from the `leaderboard_totals(since timestamptz)` RPC. The
+// function also returns avg_score, which is intentionally not listed here --
+// see the note on CATEGORIES for why it is no longer ranked on.
 type LeaderboardTotal = {
   user_id: string;
   hike_count: number;
   total_miles: number;
   total_elevation_ft: number;
-  avg_score: number;
 };
 
 type Category = {
@@ -45,11 +45,14 @@ type Category = {
   color: string;
 };
 
+// No "Top Rated" category. It ranked hikers by the average score they gave
+// their own hikes -- self-reported, and with most accounts holding one or two
+// hikes a single 5-star entry outranked someone with many solid ones. Unlike
+// count, distance and elevation it measured nothing comparable between users.
 const CATEGORIES: Category[] = [
   { key: "hikes", label: "Most Hikes", icon: "trending-up", unit: "hikes", color: Colors.green },
   { key: "miles", label: "Most Miles", icon: "navigation", unit: "mi", color: Colors.sky },
   { key: "elevation", label: "Most Elevation", icon: "activity", unit: "ft", color: Colors.amber },
-  { key: "score", label: "Top Rated", icon: "star", unit: "avg", color: "#a855d4" },
 ];
 
 function RankMedal({ rank }: { rank: number }) {
@@ -103,7 +106,6 @@ export default function LeaderboardScreen() {
         case "hikes": return Number(t.hike_count);
         case "miles": return Math.round(Number(t.total_miles) * 10) / 10;
         case "elevation": return Number(t.total_elevation_ft);
-        case "score": return Math.round(Number(t.avg_score) * 10) / 10;
         default: return 0;
       }
     };
@@ -132,7 +134,6 @@ export default function LeaderboardScreen() {
   const formatValue = (v: number) => {
     if (activeCategory === "miles") return formatDistance(v, distanceUnit);
     if (activeCategory === "elevation") return formatElevation(v, distanceUnit);
-    if (activeCategory === "score") return v.toFixed(1);
     return v.toString();
   };
 
