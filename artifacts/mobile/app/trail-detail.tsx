@@ -5,14 +5,12 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import Constants from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
@@ -26,8 +24,8 @@ import {
   windSpeedUnitLabel,
 } from "@/lib/units";
 import { fetchRatingStats, formatRatingDisplay, TrailRatingStats } from "@/lib/ratings";
+import TrailMap from "@/components/TrailMap";
 
-const isExpoGo = Constants.appOwnership === "expo";
 
 type Trail = {
   id: string; name: string; location: string; region: string;
@@ -71,48 +69,6 @@ function getWeatherDesc(wmo: number): string {
   if (wmo <= 82) return "Rain showers";
   return "Thunderstorm";
 }
-
-function MapView({ lat, lng, name }: { lat: number; lng: number; name: string }) {
-    if (isExpoGo) {
-      const mapsUrl = Platform.OS === "ios"
-        ? `maps://?ll=${lat},${lng}&q=${encodeURIComponent(name)}`
-        : `geo:${lat},${lng}?q=${encodeURIComponent(name)}`;
-      return (
-        <View style={[mapStyles.container, mapStyles.fallback]}>
-          <Text style={mapStyles.fallbackIcon}>🗺️</Text>
-          <Text style={mapStyles.fallbackName}>{name}</Text>
-          <Text style={mapStyles.fallbackCoords}>{lat.toFixed(5)}, {lng.toFixed(5)}</Text>
-          <Pressable onPress={() => Linking.openURL(mapsUrl)} style={mapStyles.fallbackBtn}>
-            <Text style={mapStyles.fallbackBtnText}>Open in Maps</Text>
-          </Pressable>
-        </View>
-      );
-    }
-    const WebView = require("react-native-webview").WebView;
-    // OpenTopoMap's terms (and OSM's ODbL underneath it) require visible
-    // attribution, so attributionControl stays on and the tile layer carries
-    // the credit line. Do not disable it again.
-    const TILE_ATTRIBUTION =
-      'map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | ' +
-      'style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)';
-    const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>*{margin:0;padding:0}#map{width:100vw;height:100vh;background:#1a2a1a}.leaflet-control-attribution{font-size:9px;background:rgba(0,0,0,0.55);color:#e8e8e8}.leaflet-control-attribution a{color:#9ecfa8}</style></head><body><div id="map"></div><script>var map=L.map('map',{zoomControl:false}).setView([${lat},${lng}],13);L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'${TILE_ATTRIBUTION}'}).addTo(map);var icon=L.divIcon({html:'<div style="background:#6db87a;width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5)"></div>',iconSize:[14,14],iconAnchor:[7,7],className:''});L.marker([${lat},${lng}],{icon:icon}).addTo(map);<\/script><\/body><\/html>`;
-    return (
-      <View style={mapStyles.container}>
-        <WebView source={{ html }} style={mapStyles.webview} scrollEnabled={false} showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator={false} />
-      </View>
-    );
-  }
-const mapStyles = StyleSheet.create({
-    container: { height: 200, marginHorizontal: 16, marginBottom: 4, borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: Colors.border },
-    webview: { flex: 1, backgroundColor: Colors.bg3 },
-    fallback: { alignItems: "center", justifyContent: "center", backgroundColor: Colors.bg3, gap: 4 },
-    fallbackIcon: { fontSize: 28 },
-    fallbackName: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text },
-    fallbackCoords: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text2 },
-    fallbackNote: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.text3 },
-    fallbackBtn: { marginTop: 8, paddingVertical: 8, paddingHorizontal: 20, borderRadius: 20, backgroundColor: Colors.green2 },
-    fallbackBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "#fff" },
-  });
 
 export default function TrailDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -269,7 +225,7 @@ export default function TrailDetailScreen() {
         {trail.lat && trail.lng && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Trail location</Text>
-            <MapView lat={trail.lat} lng={trail.lng} name={trail.name} />
+            <TrailMap lat={trail.lat} lng={trail.lng} name={trail.name} style={{ marginHorizontal: 16, marginBottom: 4 }} />
           </View>
         )}
 
