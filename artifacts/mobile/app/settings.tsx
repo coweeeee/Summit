@@ -21,6 +21,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { USERNAME_RULE_HINT, isValidUsername, normalizeUsername } from "@/lib/username";
 import { profileInitials } from "@/lib/format";
+import { uploadImage } from "@/lib/upload";
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
@@ -284,31 +285,32 @@ export default function SettingsScreen() {
         allowsEditing: true,
         aspect: [1, 1] as [number, number],
         quality: 0.7,
+        // Required: React Native has no Blob.arrayBuffer(), so the bytes have
+        // to come from here rather than from fetching the local file back.
+        base64: true,
       });
 
       if (result.canceled || !result.assets[0]) return;
 
       setAvatarLoading(true);
       const asset = result.assets[0];
+      if (!asset.base64) {
+        setAvatarLoading(false);
+        Alert.alert("Upload failed", "Could not read that image. Please try another.");
+        return;
+      }
       const ext = asset.uri.split(".").pop() || "jpg";
       const fileName = `${profile.id}/avatar.${ext}`;
 
-      const response = await fetch(asset.uri);
-      const blob = await response.blob();
-      const arrayBuffer = await blob.arrayBuffer();
-
-      const { error: uploadError } = await supabase.storage
-        .from("avatars")
-        .upload(fileName, arrayBuffer, { contentType: `image/${ext}`, upsert: true });
+      const { url: avatarUrl, error: uploadError } = await uploadImage(
+        "avatars", fileName, asset.base64, ext
+      );
 
       if (uploadError) {
         setAvatarLoading(false);
-        Alert.alert("Upload failed", uploadError.message);
+        Alert.alert("Upload failed", uploadError);
         return;
       }
-
-      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(fileName);
-      const avatarUrl = urlData.publicUrl + "?t=" + Date.now();
 
       await supabase.from("profiles").update({ avatar_url: avatarUrl }).eq("id", profile.id);
       await refreshProfile();

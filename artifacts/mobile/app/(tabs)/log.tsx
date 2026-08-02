@@ -33,6 +33,7 @@ import {
   formatElevation,
 } from "@/lib/units";
 import { formatDateTime, getDiffColor } from "@/lib/format";
+import { uploadImage } from "@/lib/upload";
 
 const DIFFICULTIES = ["Easy", "Moderate", "Hard", "Expert"];
 const DIMENSIONS = ["Scenery", "Views", "Trail Cond.", "Crowds", "Accessibility"];
@@ -114,7 +115,8 @@ export default function LogScreen() {
   // Each pick carries its own id: the same image can be chosen twice, so `uri`
   // isn't unique, and keying by array index mis-associates rows when one is
   // removed from the middle.
-  const [photos, setPhotos] = useState<{ id: string; uri: string; uploading: boolean }[]>([]);
+  const [photos, setPhotos] = useState<{ id: string; uri: string; base64: string | null; uploading: boolean }[]>([]);
+  const [pendingTrailRequest, setPendingTrailRequest] = useState(false);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -184,7 +186,17 @@ export default function LogScreen() {
     setReqLocation("");
     setReqNotes("");
     setReqSimilarTrails([]);
-    setShowTrailRequest(true);
+    // iOS refuses to present a pageSheet from a view controller that is
+    // already presenting one, so opening this while the search sheet was still
+    // up did nothing at all -- the tap looked dead. Dismiss search first and
+    // let the modal's onDismiss open this one once the animation finishes.
+    if (Platform.OS === "ios") {
+      setPendingTrailRequest(true);
+      setShowTrailSearch(false);
+    } else {
+      setShowTrailSearch(false);
+      setShowTrailRequest(true);
+    }
   };
 
   const submitTrailRequest = async () => {
@@ -220,10 +232,13 @@ export default function LogScreen() {
         allowsEditing: true,
         aspect: [4, 3] as [number, number],
         quality: 0.7,
+        // React Native has no Blob.arrayBuffer(), so the bytes have to come
+        // from the picker rather than from re-reading the local file.
+        base64: true,
       });
       if (result.canceled || !result.assets[0]) return;
-      const uri = result.assets[0].uri;
-      setPhotos(prev => [...prev, { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, uri, uploading: false }]);
+      const { uri, base64 } = result.assets[0];
+      setPhotos(prev => [...prev, { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, uri, base64: base64 ?? null, uploading: false }]);
     } catch (_) {}
   };
 
@@ -260,20 +275,31 @@ export default function LogScreen() {
 
   const uploadPhotos = async (hikeId: string) => {
     if (!session || photos.length === 0) return;
+    let failed = 0;
     for (let i = 0; i < photos.length; i++) {
       const photo = photos[i];
       try {
+        if (!photo.base64) { failed++; continue; }
         const ext = photo.uri.split(".").pop() || "jpg";
         const fileName = `${session.user.id}/${hikeId}_${i}.${ext}`;
-        const response = await fetch(photo.uri);
-        const blob = await response.blob();
-        const arrayBuffer = await blob.arrayBuffer();
-        const { error } = await supabase.storage.from("hike-photos").upload(fileName, arrayBuffer, { contentType: `image/${ext}`, upsert: true });
-        if (!error) {
-          const { data: urlData } = supabase.storage.from("hike-photos").getPublicUrl(fileName);
-          await supabase.from("hike_photos").insert({ hike_id: hikeId, user_id: session.user.id, photo_url: urlData.publicUrl });
-        }
-      } catch (_) {}
+        const { url, error } = await uploadImage("hike-photos", fileName, photo.base64, ext);
+        if (error || !url) { failed++; continue; }
+        const { error: rowError } = await supabase
+          .from("hike_photos")
+          .insert({ hike_id: hikeId, user_id: session.user.id, photo_url: url });
+        if (rowError) failed++;
+      } catch (_) {
+        failed++;
+      }
+    }
+    // The hike itself is already saved, so a photo failure is not fatal -- but
+    // it used to be swallowed entirely, which is how uploads stayed broken
+    // without anyone noticing.
+    if (failed > 0) {
+      Alert.alert(
+        "Some photos didn't upload",
+        `${failed} of ${photos.length} photo${photos.length === 1 ? "" : "s"} could not be saved. Your hike was logged.`
+      );
     }
   };
 
@@ -443,7 +469,17 @@ export default function LogScreen() {
       </ScrollView>
 
       {/* Trail Search Modal */}
-      <Modal visible={showTrailSearch} animationType="slide" presentationStyle="pageSheet">
+      <Modal
+        visible={showTrailSearch}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onDismiss={() => {
+          if (pendingTrailRequest) {
+            setPendingTrailRequest(false);
+            setShowTrailRequest(true);
+          }
+        }}
+      >
         <View style={[styles.searchModal, { paddingTop: insets.top + 16 }]}>
           <View style={styles.searchModalHeader}>
             <Text style={styles.searchModalTitle}>Find a Trail</Text>
