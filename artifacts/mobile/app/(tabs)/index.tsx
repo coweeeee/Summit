@@ -59,8 +59,14 @@ import { Feather } from "@expo/vector-icons";
     };
 
     const fetchPage = async (offset: number): Promise<FeedHike[]> => {
-      const { data: hikesData, error } = await supabase
-        .from("hikes").select("*, dim_ratings(*)")
+      // The feed is other people's hikes. Your own are on your profile, and
+      // seeing them here just crowded out the social content. RLS already
+      // limits this to hikes you're allowed to see; this narrows it further.
+      let query = supabase
+        .from("hikes").select("*, dim_ratings(*)");
+      if (session?.user.id) query = query.neq("user_id", session.user.id);
+
+      const { data: hikesData, error } = await query
         .order("date", { ascending: false })
         // Tiebreaker: two hikes sharing a date have no stable relative order,
         // so without this the same row can appear on consecutive pages.
