@@ -6,8 +6,12 @@ import Colors from "@/constants/colors";
 // a three-day-old comment there read "72h ago". These are the superset versions.
 
 export function getInitials(name: string | null | undefined): string {
-  if (!name) return "?";
+  // Several screens resolve a name to a string before rendering, so what
+  // arrives here may already be a handle ("@lena") or the anonymous label. The
+  // sigil is not an initial, and "AH" would read as somebody's real initials.
+  if (!name || name === ANONYMOUS_LABEL) return "?";
   const initials = name
+    .replace(/^@/, "")
     .split(" ")
     .map(w => w[0])
     .filter(Boolean)
@@ -15,6 +19,46 @@ export function getInitials(name: string | null | undefined): string {
     .toUpperCase()
     .slice(0, 2);
   return initials || "?";
+}
+
+/** Anything with a name and/or handle. Screens select different column sets. */
+export type NameableProfile = {
+  full_name?: string | null;
+  username?: string | null;
+} | null | undefined;
+
+/**
+ * How another user is labelled anywhere in the app: real name, else their
+ * handle, else a last resort.
+ *
+ * Signup has required a username since the current flow shipped, so the final
+ * fallback only ever applies to accounts provisioned outside the app. Before
+ * this existed, six different strings covered this one case — "Anonymous
+ * Hiker", "Anonymous", "Someone", "this user", "Profile" and "Your Name" —
+ * and screens that never selected `username` showed "Anonymous Hiker" even
+ * for users who had a perfectly good handle.
+ */
+export const ANONYMOUS_LABEL = "Anonymous Hiker";
+
+export function displayName(profile: NameableProfile): string {
+  const name = profile?.full_name?.trim();
+  if (name) return name;
+  const handle = profile?.username?.trim();
+  if (handle) return `@${handle}`;
+  return ANONYMOUS_LABEL;
+}
+
+/**
+ * Avatar initials matching `displayName`. Deliberately returns "?" rather than
+ * "AH" when there is nothing to work with — fake initials read as a real
+ * person's, whereas "?" reads as missing.
+ */
+export function profileInitials(profile: NameableProfile): string {
+  const name = profile?.full_name?.trim();
+  if (name) return getInitials(name);
+  const handle = profile?.username?.trim();
+  if (handle) return getInitials(handle);
+  return "?";
 }
 
 export function getDiffColor(diff: string | null | undefined): string {

@@ -22,7 +22,7 @@ import { Feather } from "@expo/vector-icons";
   import { useHikes } from "@/context/HikesContext";
   import { sendPushNotification } from "@/lib/notifications";
   import { formatDistance, formatElevation } from "@/lib/units";
-  import { formatFullDate, getDiffColor, getInitials, timeAgo } from "@/lib/format";
+  import { ANONYMOUS_LABEL, displayName, formatFullDate, getDiffColor, getInitials, timeAgo } from "@/lib/format";
 
   type HikeDetail = {
     id: string; trail_name: string; location: string; distance_mi: number;
@@ -51,7 +51,7 @@ import { Feather } from "@expo/vector-icons";
     const [loading, setLoading] = useState(true);
     const [commentText, setCommentText] = useState("");
     const [posting, setPosting] = useState(false);
-    const [hikerName, setHikerName] = useState("Anonymous");
+    const [hikerName, setHikerName] = useState(ANONYMOUS_LABEL);
     const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
     const [deleting, setDeleting] = useState(false);
     const scrollRef = useRef<ScrollView>(null);
@@ -77,8 +77,8 @@ import { Feather } from "@expo/vector-icons";
 
         if (hikeRes.data) {
           setHike(hikeRes.data);
-          const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", hikeRes.data.user_id).single();
-          if (profile) setHikerName(profile.full_name || "Anonymous");
+          const { data: profile } = await supabase.from("profiles").select("full_name, username").eq("id", hikeRes.data.user_id).single();
+          if (profile) setHikerName(displayName(profile));
         }
 
         if (photosRes.data) setPhotos(photosRes.data.map((p: any) => p.photo_url));
@@ -87,10 +87,10 @@ import { Feather } from "@expo/vector-icons";
 
         if (commentsRes.data && commentsRes.data.length > 0) {
           const userIds = [...new Set(commentsRes.data.map((c: any) => c.user_id))];
-          const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", userIds);
+          const { data: profiles } = await supabase.from("profiles").select("id, full_name, username").in("id", userIds);
           const pMap: Record<string, string> = {};
-          if (profiles) profiles.forEach((p: any) => { pMap[p.id] = p.full_name || "Anonymous"; });
-          setComments(commentsRes.data.map((c: any) => ({ ...c, userName: pMap[c.user_id] || "Anonymous" })));
+          if (profiles) profiles.forEach((p: any) => { pMap[p.id] = displayName(p); });
+          setComments(commentsRes.data.map((c: any) => ({ ...c, userName: pMap[c.user_id] || ANONYMOUS_LABEL })));
         }
 
         if (session) {
@@ -135,7 +135,7 @@ import { Feather } from "@expo/vector-icons";
             targetUserId: hike.user_id,
             type: "like",
             title: "New like",
-            body: `${profile?.full_name || "Someone"} liked your hike on ${hike.trail_name || "a trail"}`,
+            body: `${displayName(profile)} liked your hike on ${hike.trail_name || "a trail"}`,
             data: { hikeId: id },
             hikeId: id,
           });
@@ -151,8 +151,8 @@ import { Feather } from "@expo/vector-icons";
       }).select().single();
       setPosting(false);
       if (error || !data) return;
-      const { data: commenterProfile } = await supabase.from("profiles").select("full_name").eq("id", session.user.id).single();
-      setComments(prev => [...prev, { ...data, userName: commenterProfile?.full_name || "Anonymous" }]);
+      const { data: commenterProfile } = await supabase.from("profiles").select("full_name, username").eq("id", session.user.id).single();
+      setComments(prev => [...prev, { ...data, userName: displayName(commenterProfile) }]);
       setCommentText("");
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 200);
       if (hike && hike.user_id !== session.user.id) {
@@ -160,7 +160,7 @@ import { Feather } from "@expo/vector-icons";
           targetUserId: hike.user_id,
           type: "comment",
           title: "New comment",
-          body: `${commenterProfile?.full_name || profile?.full_name || "Someone"} commented on your hike on ${hike.trail_name || "a trail"}`,
+          body: `${displayName(commenterProfile ?? profile)} commented on your hike on ${hike.trail_name || "a trail"}`,
           data: { hikeId: id },
           hikeId: id,
         });

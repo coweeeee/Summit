@@ -17,11 +17,12 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { formatDistance, formatElevation } from "@/lib/units";
-import { getInitials } from "@/lib/format";
+import { displayName, profileInitials } from "@/lib/format";
 
 type LeaderEntry = {
   id: string;
   full_name: string | null;
+  username: string | null;
   avatar_url: string | null;
   value: number;
   rank: number;
@@ -95,7 +96,7 @@ export default function LeaderboardScreen() {
     const userIds = totals.map(t => t.user_id);
     if (userIds.length === 0) { setLeaders([]); setMyRank(null); setLoading(false); setRefreshing(false); return; }
 
-    const { data: profiles } = await supabase.from("profiles").select("id, full_name, avatar_url").in("id", userIds);
+    const { data: profiles } = await supabase.from("profiles").select("id, full_name, username, avatar_url").in("id", userIds);
     const profileMap: Record<string, any> = {};
     if (profiles) profiles.forEach((p: any) => { profileMap[p.id] = p; });
 
@@ -203,12 +204,12 @@ export default function LeaderboardScreen() {
                     <Image source={{ uri: entry.avatar_url }} style={styles.avatarImg} />
                   ) : (
                     <View style={[styles.avatarFallback, isMe && { borderColor: Colors.accent }]}>
-                      <Text style={styles.avatarText}>{getInitials(entry.full_name)}</Text>
+                      <Text style={styles.avatarText}>{profileInitials(entry)}</Text>
                     </View>
                   )}
                 </View>
                 <View style={styles.entryInfo}>
-                  <Text style={[styles.entryName, isMe && { color: Colors.accent }]}>{entry.full_name || "Anonymous"}{isMe ? " (you)" : ""}</Text>
+                  <Text style={[styles.entryName, isMe && { color: Colors.accent }]}>{displayName(entry)}{isMe ? " (you)" : ""}</Text>
                 </View>
                 <View style={[styles.valueWrap, { backgroundColor: cat.color + "18" }]}>
                   <Text style={[styles.valueText, { color: cat.color }]}>{formatValue(entry.value)}</Text>

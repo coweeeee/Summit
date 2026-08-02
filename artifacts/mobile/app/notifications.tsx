@@ -17,7 +17,7 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { findBadgeDefinition } from "@/lib/badges";
-import { timeAgo } from "@/lib/format";
+import { displayName, profileInitials, timeAgo } from "@/lib/format";
 
 type Notif = {
   id: string;
@@ -95,7 +95,7 @@ export default function NotificationsScreen() {
         .from("likes")
         // user_id is selected so the key can use the row's real primary key
         // (user_id, hike_id) rather than a timestamp that two rows could share.
-        .select("user_id, hike_id, created_at, profiles(full_name)")
+        .select("user_id, hike_id, created_at, profiles(full_name, username)")
         .in("hike_id", hikeIds)
         .neq("user_id", session.user.id)
         .order("created_at", { ascending: false })
@@ -104,7 +104,7 @@ export default function NotificationsScreen() {
       if (likes) {
         likes.forEach((l: any) => {
           const hike = myHikes.find((h: any) => h.id === l.hike_id);
-          const name = l.profiles?.full_name || "Someone";
+          const name = displayName(l.profiles);
           results.push({
             id: `like-${l.user_id}-${l.hike_id}`,
             icon: "heart",
@@ -120,7 +120,7 @@ export default function NotificationsScreen() {
     // 2. New followers (accepted only)
     const { data: followers } = await supabase
       .from("follows")
-      .select("follower_id, created_at, profiles(full_name)")
+      .select("follower_id, created_at, profiles(full_name, username)")
       .eq("following_id", session.user.id)
       .eq("status", "accepted")
       .order("created_at", { ascending: false })
@@ -128,7 +128,7 @@ export default function NotificationsScreen() {
 
     if (notifFollows && followers) {
       followers.forEach((f: any) => {
-        const name = f.profiles?.full_name || "Someone";
+        const name = displayName(f.profiles);
         results.push({
           id: `follow-${f.follower_id}`,
           icon: "user-plus",
@@ -143,7 +143,7 @@ export default function NotificationsScreen() {
     // Fetch pending follow requests (always, regardless of notif prefs)
     const { data: requests } = await supabase
       .from("follows")
-      .select("follower_id, created_at, profiles(full_name, avatar_url)")
+      .select("follower_id, created_at, profiles(full_name, username, avatar_url)")
       .eq("following_id", session.user.id)
       .eq("status", "pending")
       .order("created_at", { ascending: false });
@@ -163,7 +163,7 @@ export default function NotificationsScreen() {
       const { data: comments } = await supabase
         .from("comments")
         // `id` is the comment's primary key — a stabler key than hike + timestamp.
-        .select("id, hike_id, created_at, profiles(full_name)")
+        .select("id, hike_id, created_at, profiles(full_name, username)")
         .in("hike_id", hikeIds)
         .neq("user_id", session.user.id)
         .order("created_at", { ascending: false })
@@ -172,7 +172,7 @@ export default function NotificationsScreen() {
       if (comments) {
         comments.forEach((c: any) => {
           const hike = myHikes.find((h: any) => h.id === c.hike_id);
-          const name = c.profiles?.full_name || "Someone";
+          const name = displayName(c.profiles);
           results.push({
             id: `comment-${c.id}`,
             icon: "message-circle",
@@ -249,10 +249,10 @@ export default function NotificationsScreen() {
                   <View style={styles.requestAvatar}>
                     {req.avatar_url
                       ? <Image source={{ uri: req.avatar_url }} style={styles.requestAvatarImg} />
-                      : <Text style={styles.requestAvatarText}>{(req.full_name?.[0] ?? "?").toUpperCase()}</Text>
+                      : <Text style={styles.requestAvatarText}>{profileInitials(req)}</Text>
                     }
                   </View>
-                  <Text style={styles.requestName} numberOfLines={1}>{req.full_name || "Someone"}</Text>
+                  <Text style={styles.requestName} numberOfLines={1}>{displayName(req)}</Text>
                   <View style={styles.requestActions}>
                     <Pressable
                       onPress={() => acceptRequest(req.follower_id)}

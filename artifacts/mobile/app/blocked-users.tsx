@@ -15,9 +15,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { getInitials } from "@/lib/format";
+import { ANONYMOUS_LABEL, displayName, profileInitials } from "@/lib/format";
 
-type BlockedUser = { id: string; full_name: string | null; avatar_url: string | null; blockRowId?: string };
+type BlockedUser = { id: string; full_name: string | null; username: string | null; avatar_url: string | null; blockRowId?: string };
 
 export default function BlockedUsersScreen() {
   const { profile } = useAuth();
@@ -34,7 +34,7 @@ export default function BlockedUsersScreen() {
     const { data: blockRows } = await supabase.from("blocks").select("id, blocked_id").eq("blocker_id", profile.id);
     if (blockRows && blockRows.length > 0) {
       const ids = blockRows.map((r: any) => r.blocked_id);
-      const { data: profiles } = await supabase.from("profiles").select("id, full_name, avatar_url").in("id", ids);
+      const { data: profiles } = await supabase.from("profiles").select("id, full_name, username, avatar_url").in("id", ids);
       if (profiles) {
         const rowMap: Record<string, string> = {};
         blockRows.forEach((r: any) => { rowMap[r.blocked_id] = r.id; });
@@ -48,7 +48,7 @@ export default function BlockedUsersScreen() {
 
   const unblockUser = (userId: string, name: string | null) => {
     Alert.alert(
-      "Unblock " + (name || "this user") + "?",
+      "Unblock " + (name || ANONYMOUS_LABEL) + "?",
       "They will be able to see your posts again.",
       [
         { text: "Cancel", style: "cancel" },
@@ -89,12 +89,12 @@ export default function BlockedUsersScreen() {
                 {u.avatar_url ? (
                   <Image source={{ uri: u.avatar_url }} style={styles.blockedAvatarImg} />
                 ) : (
-                  <Text style={styles.blockedAvatarText}>{getInitials(u.full_name)}</Text>
+                  <Text style={styles.blockedAvatarText}>{profileInitials(u)}</Text>
                 )}
               </View>
-              <Text style={styles.blockedName} numberOfLines={1}>{u.full_name || "Anonymous Hiker"}</Text>
+              <Text style={styles.blockedName} numberOfLines={1}>{displayName(u)}</Text>
               <Pressable
-                onPress={() => unblockUser(u.id, u.full_name)}
+                onPress={() => unblockUser(u.id, displayName(u))}
                 style={({ pressed }) => [styles.unblockBtn, { opacity: pressed ? 0.7 : 1 }]}
               >
                 <Text style={styles.unblockBtnText}>Unblock</Text>

@@ -20,7 +20,7 @@ import { Feather } from "@expo/vector-icons";
   import { useHikes } from "@/context/HikesContext";
   import { supabase } from "@/lib/supabase";
   import { BADGE_DEFINITIONS, badgeProgress, isEarlyBirdStart } from "@/lib/badges";
-  import { formatShortDate, getDiffColor, getInitials } from "@/lib/format";
+  import { displayName, formatShortDate, getDiffColor, profileInitials } from "@/lib/format";
   import {
     distanceFromMiles,
     elevationFromFeet,
@@ -30,7 +30,7 @@ import { Feather } from "@expo/vector-icons";
   } from "@/lib/units";
 
   type SavedTrail = { id: string; name: string; location: string; difficulty: string; rating: number; distance_mi: number; elevation_ft: number; };
-  type FollowUser = { id: string; full_name: string | null; avatar_url: string | null; };
+  type FollowUser = { id: string; full_name: string | null; username: string | null; avatar_url: string | null; };
 
   // Icon and colour are the only presentation-specific parts of a badge; the
   // name, the copy and the earning rule all come from lib/badges so this screen
@@ -110,7 +110,7 @@ import { Feather } from "@expo/vector-icons";
         userIds = (data || []).map((f: any) => f.following_id);
       }
       if (userIds.length > 0) {
-        const { data: users } = await supabase.from("profiles").select("id, full_name, avatar_url").in("id", userIds);
+        const { data: users } = await supabase.from("profiles").select("id, full_name, username, avatar_url").in("id", userIds);
         setFollowUsers(users || []);
       } else {
         setFollowUsers([]);
@@ -151,14 +151,14 @@ import { Feather } from "@expo/vector-icons";
                 <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
               ) : (
                 <View style={styles.avatarFallback}>
-                  <Text style={styles.avatarText}>{getInitials(profile?.full_name || null)}</Text>
+                  <Text style={styles.avatarText}>{profileInitials(profile)}</Text>
                 </View>
               )}
               <View style={styles.avatarEditDot}>
                 <Feather name="camera" size={10} color="#fff" />
               </View>
             </Pressable>
-            <Text style={styles.name}>{profile?.full_name || "Hiker"}</Text>
+            <Text style={styles.name}>{displayName(profile)}</Text>
             <Text style={styles.bio}>{profile?.bio || "Exploring trails one step at a time"}</Text>
 
             <View style={styles.statsRow}>
@@ -356,10 +356,10 @@ import { Feather } from "@expo/vector-icons";
                       {u.avatar_url ? (
                         <Image source={{ uri: u.avatar_url }} style={styles.followUserAvatarImg} />
                       ) : (
-                        <Text style={styles.followUserAvatarText}>{getInitials(u.full_name)}</Text>
+                        <Text style={styles.followUserAvatarText}>{profileInitials(u)}</Text>
                       )}
                     </View>
-                    <Text style={styles.followUserName}>{u.full_name || "Anonymous Hiker"}</Text>
+                    <Text style={styles.followUserName}>{displayName(u)}</Text>
                     <Feather name="chevron-right" size={16} color={Colors.text3} />
                   </Pressable>
                 ))}
