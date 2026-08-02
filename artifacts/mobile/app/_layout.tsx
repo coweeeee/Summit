@@ -40,6 +40,14 @@ import {
   const queryClient = new QueryClient();
 
   async function registerForPushNotifications(userId: string) {
+    try {
+      await registerForPushNotificationsInner(userId);
+    } catch (e: any) {
+      console.warn("push registration failed", e?.message ?? e);
+    }
+  }
+
+  async function registerForPushNotificationsInner(userId: string) {
     if (isExpoGo) return;
     if (!Device.isDevice) return;
     const { status: existing } = await Notifications.getPermissionsAsync();
@@ -50,9 +58,25 @@ import {
     }
     if (finalStatus !== "granted") return;
 
-    const token = (await Notifications.getExpoPushTokenAsync()).data;
+    // getExpoPushTokenAsync needs the EAS project id and throws without one.
+    // app.json had no extra.eas.projectId, so this would have failed in a real
+    // build too -- not just in Expo Go, where the guard above returns early.
+    // `eas init` writes the id; until then this logs rather than throwing.
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      (Constants as any).easConfig?.projectId;
+    if (!projectId) {
+      console.warn("push registration skipped: no EAS projectId in app config");
+      return;
+    }
+
+    const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
     if (token) {
-      await supabase.from("push_tokens").upsert({ user_id: userId, token, updated_at: new Date().toISOString() });
+      const { error } = await supabase
+        .from("push_tokens")
+        .upsert({ user_id: userId, token, updated_at: new Date().toISOString() });
+      // Silently losing this is why push_tokens stayed empty without a trace.
+      if (error) console.warn("push token upsert failed", error.message);
     }
 
     if (Platform.OS === "android") {

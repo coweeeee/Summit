@@ -1,11 +1,11 @@
 {
   "expo": {
     "name": "Summit",
-    "slug": "mobile",
+    "slug": "summit",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
+    "scheme": "summit",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
@@ -14,23 +14,21 @@
       "backgroundColor": "#0f1a0f"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.coweeeee.summit"
     },
     "android": {
-      "backgroundColor": "#0f1a0f"
+      "backgroundColor": "#0f1a0f",
+      "package": "com.coweeeee.summit"
     },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
-      [
-        "expo-router",
-        {
-          "origin": "https://replit.com/"
-        }
-      ],
+      "expo-router",
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true,
