@@ -5,6 +5,15 @@
   "type": "module",
   "description": "Public landing pages for shared Summit profiles and hikes.",
   "dependencies": {
-    "@vercel/og": "^0.6.5"
+    "@vercel/og": "^0.6.5",
+    "react": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.0",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }
