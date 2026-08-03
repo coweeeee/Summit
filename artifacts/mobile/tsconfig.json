@@ -3,12 +3,20 @@
   "compilerOptions": {
     "baseUrl": ".",
     "strict": true,
-    "moduleSuffixes": ["", ".ios", ".android", ".native", ".web"],
+    "moduleSuffixes": [
+      "",
+      ".ios",
+      ".android",
+      ".native",
+      ".web"
+    ],
     "paths": {
       "@/*": [
         "./*"
       ]
-    }
+    },
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
   "include": [
     "**/*.ts",

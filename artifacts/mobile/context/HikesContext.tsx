@@ -20,6 +20,8 @@ export type Hike = {
   date: string
   user_id?: string
   trail_id?: string
+  /** The linked trail's tags, for the row icon. Empty when trail_id is null. */
+  trailTags?: string[]
 }
 
 type HikesContextType = {
@@ -49,6 +51,10 @@ function mapHike(h: any): Hike {
     date: h.date,
     user_id: h.user_id,
     trail_id: h.trail_id,
+    // Embedded rather than fetched separately: the hikes.trail_id -> trails.id
+    // FK lets PostgREST return this in the same round trip. Null trail_id
+    // yields no row here at all, which trailIconKey treats as "no tags".
+    trailTags: h.trails?.tags ?? [],
   }
 }
 
@@ -65,7 +71,7 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
     setLoading(true)
     const { data } = await supabase
       .from('hikes')
-      .select('*, dim_ratings(*)')
+      .select('*, dim_ratings(*), trails(tags)')
       .eq('user_id', session.user.id)
       .order('date', { ascending: false })
     const mapped = data ? data.map(mapHike) : []
