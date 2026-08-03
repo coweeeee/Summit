@@ -1,0 +1,10 @@
+{
+  "name": "summit-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Public landing pages for shared Summit profiles and hikes.",
+  "dependencies": {
+    "@vercel/og": "^0.6.5"
+  }
+}

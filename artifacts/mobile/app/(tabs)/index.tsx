@@ -22,6 +22,7 @@ import { Feather } from "@expo/vector-icons";
   import { ANONYMOUS_LABEL, displayName, getDiffColor, getInitials, timeAgo } from "@/lib/format";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
   import { showActionSheet } from "@/lib/actionSheet";
+  import { shareEntity, sharingAvailable } from "@/lib/share";
 
   const PAGE_SIZE = 20;
   type FeedHike = {
@@ -291,6 +292,14 @@ import { Feather } from "@expo/vector-icons";
                 onPress={(e) => {
                   e.stopPropagation?.();
                   showActionSheet(hike.trail_name || "Hike", [
+                    // Omitted entirely until the landing site exists, rather
+                    // than handing someone a link to nowhere.
+                    ...(sharingAvailable
+                      ? [{
+                          label: "Share hike",
+                          onPress: () => { shareEntity("hike", hike.id, `${hike.trail_name || "A hike"} on Summit`); },
+                        }]
+                      : []),
                     {
                       label: "Report post",
                       destructive: true,
