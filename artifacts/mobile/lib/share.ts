@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import { Share } from "react-native";
 
 // Sharing, via the OS share sheet.
@@ -10,13 +11,19 @@ import { Share } from "react-native";
 // Share.share is React Native's built-in -- no dependency needed.
 
 /**
- * Set to the deployed landing site, e.g. https://summit-web.vercel.app.
+ * The deployed landing site, from `extra.shareBaseUrl` in app.json.
  *
- * Empty until that project exists. Sharing is hidden rather than degraded in
- * that case: a share button that hands someone a link to nowhere is worse than
- * no share button.
+ * Config rather than a .env entry, because .env is gitignored: as an
+ * EXPO_PUBLIC_ variable this worked on one machine and silently left every
+ * fresh clone and EAS build with no share buttons at all. It is a public
+ * landing page URL, so there is nothing to keep out of the repo.
+ *
+ * Empty means sharing is hidden rather than degraded -- a share button that
+ * hands someone a link to nowhere is worse than no share button.
  */
-export const SHARE_BASE_URL = (process.env.EXPO_PUBLIC_SHARE_BASE_URL ?? "").replace(/\/$/, "");
+export const SHARE_BASE_URL = String(
+  (Constants.expoConfig?.extra as { shareBaseUrl?: string } | undefined)?.shareBaseUrl ?? ""
+).replace(/\/$/, "");
 
 export const sharingAvailable = SHARE_BASE_URL.length > 0;
 
