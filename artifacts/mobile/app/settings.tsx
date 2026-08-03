@@ -109,6 +109,11 @@ export default function SettingsScreen() {
   const [editUsername, setEditUsername] = useState(profile?.username || "");
   const [saveLoading, setSaveLoading] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
+  // The icon grid lives behind this rather than inline on the Settings screen.
+  // Choosing a profile picture is something you do once and then never think
+  // about, so twenty coloured circles do not belong in the resting state of a
+  // screen you open to flip a notification switch.
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
 
   const [isPrivate, setIsPrivate] = useState(profile?.is_private ?? false);
 
@@ -317,6 +322,7 @@ export default function SettingsScreen() {
       await supabase.from("profiles").update({ avatar_url: avatarUrl, avatar_preset: null }).eq("id", profile.id);
       await refreshProfile();
       setAvatarLoading(false);
+      setShowAvatarModal(false);
       Alert.alert("Done!", "Profile picture updated.");
     } catch (e) {
       setAvatarLoading(false);
@@ -325,22 +331,32 @@ export default function SettingsScreen() {
   };
 
   /**
-   * Tapping the icon you already have turns it off, which is the only way back
-   * to plain initials once anything is set — an uploaded photo can be replaced
-   * or superseded by an icon, but never simply removed.
+   * Writes whichever of the two fields was chosen and nulls the other, which is
+   * what keeps them mutually exclusive. Passing null for both is the "use my
+   * initials" case.
    */
-  const handlePickPreset = async (key: string) => {
+  const saveAvatarChoice = async (next: { avatar_url: string | null; avatar_preset: string | null }) => {
     if (!profile || avatarLoading) return;
-    const next = profile.avatar_preset === key ? null : key;
     setAvatarLoading(true);
-    const { error } = await supabase
-      .from("profiles")
-      .update({ avatar_preset: next, avatar_url: null })
-      .eq("id", profile.id);
+    const { error } = await supabase.from("profiles").update(next).eq("id", profile.id);
     setAvatarLoading(false);
     if (error) { Alert.alert("Could not save", error.message); return; }
     await refreshProfile();
+    setShowAvatarModal(false);
   };
+
+  // Tapping the icon you already have turns it off, so the grid doubles as its
+  // own undo without needing a separate control for that one case.
+  const handlePickPreset = (key: string) =>
+    saveAvatarChoice({
+      avatar_preset: profile?.avatar_preset === key ? null : key,
+      avatar_url: null,
+    });
+
+  // Explicit route back to initials. Without it there was no way to remove an
+  // uploaded photo at all — you could only replace it with another photo or an
+  // icon, since the picker only ever set fields and never cleared them both.
+  const handleUseInitials = () => saveAvatarChoice({ avatar_url: null, avatar_preset: null });
 
   return (
     <View style={styles.container}>
@@ -356,7 +372,13 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.avatarSection}>
-          <Pressable onPress={handlePickAvatar} style={styles.avatarWrap} disabled={avatarLoading}>
+          <Pressable
+            onPress={() => setShowAvatarModal(true)}
+            style={styles.avatarWrap}
+            disabled={avatarLoading}
+            accessibilityRole="button"
+            accessibilityLabel="Change profile picture"
+          >
             <Avatar profile={profile} size={80} ringWidth={2.5} />
             <View style={styles.avatarEditBadge}>
               {avatarLoading
@@ -366,39 +388,7 @@ export default function SettingsScreen() {
             </View>
           </Pressable>
           <Text style={styles.avatarName}>{profile?.full_name || "Your Name"}</Text>
-          <Text style={styles.avatarSub}>Tap to upload a photo</Text>
-        </View>
-
-        <SectionHeader title="Or pick an icon" />
-        <View style={styles.section}>
-          <View style={styles.presetGrid}>
-            {AVATAR_PRESETS.map(preset => {
-              const selected = profile?.avatar_preset === preset.key;
-              return (
-                <Pressable
-                  key={preset.key}
-                  onPress={() => handlePickPreset(preset.key)}
-                  disabled={avatarLoading}
-                  accessibilityRole="button"
-                  accessibilityLabel={preset.label}
-                  accessibilityState={{ selected }}
-                  style={({ pressed }) => [
-                    styles.presetCell,
-                    { backgroundColor: preset.color + PRESET_DISC_ALPHA },
-                    selected && { borderColor: preset.color },
-                    { opacity: pressed ? 0.6 : 1 },
-                  ]}
-                >
-                  <MaterialCommunityIcons name={preset.icon} size={26} color={preset.color} />
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text style={styles.presetHint}>
-            {profile?.avatar_preset
-              ? "Tap your icon again to go back to initials."
-              : "Choosing an icon replaces your photo."}
-          </Text>
+          <Text style={styles.avatarSub}>Tap to change</Text>
         </View>
 
         <SectionHeader title="Account" />
@@ -484,6 +474,71 @@ export default function SettingsScreen() {
           />
         </View>
       </ScrollView>
+
+      {/* ── Profile picture picker ── */}
+        <Modal visible={showAvatarModal} transparent animationType="fade">
+          <Pressable
+            style={styles.deleteOverlay}
+            onPress={() => !avatarLoading && setShowAvatarModal(false)}
+          >
+            {/* Swallows taps so pressing the sheet itself doesn't dismiss it. */}
+            <Pressable style={styles.avatarSheet} onPress={() => {}}>
+              <Text style={styles.avatarSheetTitle}>Profile picture</Text>
+
+              <Pressable
+                onPress={handlePickAvatar}
+                disabled={avatarLoading}
+                style={({ pressed }) => [styles.avatarPhotoBtn, { opacity: pressed || avatarLoading ? 0.6 : 1 }]}
+              >
+                <Feather name="image" size={16} color={Colors.accent} />
+                <Text style={styles.avatarPhotoBtnText}>Upload a photo</Text>
+              </Pressable>
+
+              <Text style={styles.avatarSheetLabel}>Pick an icon</Text>
+              <View style={styles.presetGrid}>
+                {AVATAR_PRESETS.map(preset => {
+                  const selected = profile?.avatar_preset === preset.key;
+                  return (
+                    <Pressable
+                      key={preset.key}
+                      onPress={() => handlePickPreset(preset.key)}
+                      disabled={avatarLoading}
+                      accessibilityRole="button"
+                      accessibilityLabel={preset.label}
+                      accessibilityState={{ selected }}
+                      style={({ pressed }) => [
+                        styles.presetCell,
+                        { backgroundColor: preset.color + PRESET_DISC_ALPHA },
+                        selected && { borderColor: preset.color },
+                        { opacity: pressed ? 0.6 : 1 },
+                      ]}
+                    >
+                      <MaterialCommunityIcons name={preset.icon} size={26} color={preset.color} />
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {(profile?.avatar_url || profile?.avatar_preset) && (
+                <Pressable
+                  onPress={handleUseInitials}
+                  disabled={avatarLoading}
+                  style={({ pressed }) => [styles.avatarClearBtn, { opacity: pressed || avatarLoading ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.avatarClearText}>Use my initials instead</Text>
+                </Pressable>
+              )}
+
+              <Pressable
+                onPress={() => setShowAvatarModal(false)}
+                disabled={avatarLoading}
+                style={({ pressed }) => [styles.deleteCancelBtn, { opacity: pressed || avatarLoading ? 0.5 : 1 }]}
+              >
+                <Text style={styles.deleteCancelText}>{avatarLoading ? "Saving…" : "Done"}</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
 
       {/* ── Delete Account confirmation modal ── */}
         <Modal visible={showDeleteModal} transparent animationType="fade">
@@ -631,10 +686,26 @@ const styles = StyleSheet.create({
     // Transparent rather than absent so selecting one does not resize it.
     borderWidth: 2, borderColor: "transparent",
   },
-  presetHint: {
-    fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3,
-    paddingHorizontal: 16, paddingBottom: 16, textAlign: "center",
+  avatarSheet: {
+    backgroundColor: Colors.bg2,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingTop: 24, paddingHorizontal: 20, paddingBottom: 32,
+    alignItems: "center",
   },
+  avatarSheetTitle: { fontFamily: "Inter_700Bold", fontSize: 20, color: Colors.text, marginBottom: 18 },
+  avatarSheetLabel: {
+    fontFamily: "Inter_500Medium", fontSize: 11, letterSpacing: 1.2,
+    textTransform: "uppercase", color: Colors.text3,
+    alignSelf: "flex-start", marginTop: 20,
+  },
+  avatarPhotoBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    width: "100%", paddingVertical: 14, borderRadius: 12,
+    borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3,
+  },
+  avatarPhotoBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.accent },
+  avatarClearBtn: { width: "100%", paddingVertical: 12, alignItems: "center", marginTop: 4 },
+  avatarClearText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text2 },
   sectionHeader: {
     fontFamily: "Inter_500Medium", fontSize: 11, letterSpacing: 1.2,
     textTransform: "uppercase", color: Colors.text3,
