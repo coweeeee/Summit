@@ -41,6 +41,9 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "shareBaseUrl": "https://summit-api-server.vercel.app"
     }
   }
 }
