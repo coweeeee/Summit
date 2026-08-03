@@ -1,24 +1,31 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-// Sends a push notification for one of three event types: 'like', 'follow',
-// or 'milestone'. Called by the client right after the underlying action
-// succeeds (a like/follow insert, or a hike log that crossed a badge
-// threshold) - NOT by a database trigger, since edge functions have safe
+// Sends a push notification for one of four event types: 'like', 'follow',
+// 'comment' or 'milestone'. Called by the client right after the underlying
+// action succeeds (a like/follow/comment insert, or a hike log that crossed a
+// badge threshold) - NOT by a database trigger, since edge functions have safe
 // access to the service role key via their own runtime env, whereas doing
 // this from a DB trigger would require embedding that secret in SQL.
+//
+// 'comment' was missing here while hike-detail.tsx had been sending it for
+// some time. Every comment notification was rejected with a 400, and the
+// client never inspected the response, so the failure was completely silent -
+// notif_comments existed as a preference with nothing server-side reading it.
+// Keep this list and lib/notifications.ts's NotificationType in step.
 //
 // Security model:
 //  - Caller must have a valid session (verify_jwt: true).
 //  - For 'milestone', the caller may only report a badge for THEMSELVES
 //    (targetUserId must equal the caller's own id) - prevents anyone from
 //    awarding arbitrary badges to other users.
-//  - For 'like'/'follow', the caller is reporting an action they just took
-//    against someone else, so we verify a matching row actually exists
-//    (a real like/follow from caller -> target) before sending anything -
-//    prevents using this endpoint to spam arbitrary push notifications.
-//  - The target's own notif_likes/notif_follows/notif_milestones preference
-//    is checked before sending - if they've turned that category off, this
-//    is a silent no-op.
+//  - For 'like'/'follow'/'comment', the caller is reporting an action they
+//    just took against someone else, so we verify a matching row actually
+//    exists (a real like/follow/comment from caller -> target) before sending
+//    anything - prevents using this endpoint to spam arbitrary push
+//    notifications.
+//  - The target's own notif_likes/notif_follows/notif_comments/
+//    notif_milestones preference is checked before sending - if they've turned
+//    that category off, this is a silent no-op.
 Deno.serve(async (req) => {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
@@ -27,7 +34,7 @@ Deno.serve(async (req) => {
 
   let body: {
     targetUserId?: string;
-    type?: "like" | "follow" | "milestone";
+    type?: "like" | "follow" | "comment" | "milestone";
     title?: string;
     body?: string;
     data?: Record<string, unknown>;
@@ -44,8 +51,8 @@ Deno.serve(async (req) => {
   if (!targetUserId || !type || !title || !message) {
     return new Response(JSON.stringify({ error: "targetUserId, type, title, and body are required" }), { status: 400 });
   }
-  if (!["like", "follow", "milestone"].includes(type)) {
-    return new Response(JSON.stringify({ error: "type must be 'like', 'follow', or 'milestone'" }), { status: 400 });
+  if (!["like", "follow", "comment", "milestone"].includes(type)) {
+    return new Response(JSON.stringify({ error: "type must be 'like', 'follow', 'comment', or 'milestone'" }), { status: 400 });
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -97,6 +104,19 @@ Deno.serve(async (req) => {
     if (!likeRows || likeRows.length === 0) {
       return new Response(JSON.stringify({ error: "No matching like found for caller -> target" }), { status: 403 });
     }
+  } else if (type === "comment") {
+    if (caller.id === targetUserId) {
+      return new Response(JSON.stringify({ success: true, selfAction: true }), { status: 200 });
+    }
+    // Same shape as 'like': prove a real comment by the caller exists on a hike
+    // owned by the target, so this endpoint can't be used to push arbitrary
+    // text at someone. hikeId narrows it to the comment just posted when the
+    // client passes it, which hike-detail.tsx does.
+    const query = admin.from("comments").select("id, hike_id, hikes!inner(user_id)").eq("user_id", caller.id).eq("hikes.user_id", targetUserId).limit(1);
+    const { data: commentRows } = hikeId ? await query.eq("hike_id", hikeId) : await query;
+    if (!commentRows || commentRows.length === 0) {
+      return new Response(JSON.stringify({ error: "No matching comment found for caller -> target" }), { status: 403 });
+    }
   } else if (type === "follow") {
     if (caller.id === targetUserId) {
       return new Response(JSON.stringify({ success: true, selfAction: true }), { status: 200 });
@@ -112,7 +132,13 @@ Deno.serve(async (req) => {
     }
   }
 
-  const prefColumn = type === "like" ? "notif_likes" : type === "follow" ? "notif_follows" : "notif_milestones";
+  const prefColumn = type === "like"
+    ? "notif_likes"
+    : type === "follow"
+    ? "notif_follows"
+    : type === "comment"
+    ? "notif_comments"
+    : "notif_milestones";
   const { data: targetProfile } = await admin
     .from("profiles")
     .select(`id, ${prefColumn}`)
