@@ -12,6 +12,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     full_name: string | null
     bio: string | null
     avatar_url: string | null
+    /** Key into AVATAR_PRESETS. Mutually exclusive with avatar_url. */
+    avatar_preset: string | null
     created_at: string
     distance_unit: 'imperial' | 'metric'
     notif_likes: boolean

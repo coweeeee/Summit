@@ -1,10 +1,9 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
   Platform,
   Pressable,
@@ -20,8 +19,9 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { USERNAME_RULE_HINT, isValidUsername, normalizeUsername } from "@/lib/username";
-import { profileInitials } from "@/lib/format";
 import { uploadImage } from "@/lib/upload";
+import Avatar from "@/components/Avatar";
+import { AVATAR_PRESETS, PRESET_DISC_ALPHA } from "@/lib/avatars";
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
@@ -312,7 +312,9 @@ export default function SettingsScreen() {
         return;
       }
 
-      await supabase.from("profiles").update({ avatar_url: avatarUrl }).eq("id", profile.id);
+      // Clearing the preset is what makes the two mutually exclusive, so a row
+      // never carries both a photo and an icon for <Avatar> to choose between.
+      await supabase.from("profiles").update({ avatar_url: avatarUrl, avatar_preset: null }).eq("id", profile.id);
       await refreshProfile();
       setAvatarLoading(false);
       Alert.alert("Done!", "Profile picture updated.");
@@ -322,7 +324,23 @@ export default function SettingsScreen() {
     }
   };
 
-  const avatarUrl = profile?.avatar_url;
+  /**
+   * Tapping the icon you already have turns it off, which is the only way back
+   * to plain initials once anything is set — an uploaded photo can be replaced
+   * or superseded by an icon, but never simply removed.
+   */
+  const handlePickPreset = async (key: string) => {
+    if (!profile || avatarLoading) return;
+    const next = profile.avatar_preset === key ? null : key;
+    setAvatarLoading(true);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ avatar_preset: next, avatar_url: null })
+      .eq("id", profile.id);
+    setAvatarLoading(false);
+    if (error) { Alert.alert("Could not save", error.message); return; }
+    await refreshProfile();
+  };
 
   return (
     <View style={styles.container}>
@@ -339,13 +357,7 @@ export default function SettingsScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.avatarSection}>
           <Pressable onPress={handlePickAvatar} style={styles.avatarWrap} disabled={avatarLoading}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={styles.avatarInitials}>{profileInitials(profile)}</Text>
-              </View>
-            )}
+            <Avatar profile={profile} size={80} ringWidth={2.5} />
             <View style={styles.avatarEditBadge}>
               {avatarLoading
                 ? <ActivityIndicator size="small" color="#fff" />
@@ -354,7 +366,39 @@ export default function SettingsScreen() {
             </View>
           </Pressable>
           <Text style={styles.avatarName}>{profile?.full_name || "Your Name"}</Text>
-          <Text style={styles.avatarSub}>Tap photo to change</Text>
+          <Text style={styles.avatarSub}>Tap to upload a photo</Text>
+        </View>
+
+        <SectionHeader title="Or pick an icon" />
+        <View style={styles.section}>
+          <View style={styles.presetGrid}>
+            {AVATAR_PRESETS.map(preset => {
+              const selected = profile?.avatar_preset === preset.key;
+              return (
+                <Pressable
+                  key={preset.key}
+                  onPress={() => handlePickPreset(preset.key)}
+                  disabled={avatarLoading}
+                  accessibilityRole="button"
+                  accessibilityLabel={preset.label}
+                  accessibilityState={{ selected }}
+                  style={({ pressed }) => [
+                    styles.presetCell,
+                    { backgroundColor: preset.color + PRESET_DISC_ALPHA },
+                    selected && { borderColor: preset.color },
+                    { opacity: pressed ? 0.6 : 1 },
+                  ]}
+                >
+                  <MaterialCommunityIcons name={preset.icon} size={26} color={preset.color} />
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.presetHint}>
+            {profile?.avatar_preset
+              ? "Tap your icon again to go back to initials."
+              : "Choosing an icon replaces your photo."}
+          </Text>
         </View>
 
         <SectionHeader title="Account" />
@@ -564,13 +608,6 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 40 },
   avatarSection: { alignItems: "center", paddingVertical: 24 },
   avatarWrap: { position: "relative", marginBottom: 10 },
-  avatarImg: { width: 80, height: 80, borderRadius: 40, borderWidth: 2.5, borderColor: Colors.green },
-  avatarFallback: {
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: Colors.surface2, borderWidth: 2.5, borderColor: Colors.green,
-    alignItems: "center", justifyContent: "center",
-  },
-  avatarInitials: { fontFamily: "Inter_700Bold", fontSize: 30, color: Colors.accent },
   avatarEditBadge: {
     position: "absolute", bottom: 0, right: 0,
     width: 24, height: 24, borderRadius: 12,
@@ -580,6 +617,24 @@ const styles = StyleSheet.create({
   },
   avatarName: { fontFamily: "Inter_600SemiBold", fontSize: 18, color: Colors.text },
   avatarSub: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3, marginTop: 2 },
+  presetGrid: {
+    flexDirection: "row", flexWrap: "wrap",
+    gap: 12, padding: 16, justifyContent: "center",
+    // Exactly five columns (5 x 52 + 4 x 12), so the twenty presets always
+    // fill four whole rows instead of reflowing to a ragged last row on a
+    // wider screen.
+    maxWidth: 5 * 52 + 4 * 12 + 32, alignSelf: "center",
+  },
+  presetCell: {
+    width: 52, height: 52, borderRadius: 26,
+    alignItems: "center", justifyContent: "center",
+    // Transparent rather than absent so selecting one does not resize it.
+    borderWidth: 2, borderColor: "transparent",
+  },
+  presetHint: {
+    fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3,
+    paddingHorizontal: 16, paddingBottom: 16, textAlign: "center",
+  },
   sectionHeader: {
     fontFamily: "Inter_500Medium", fontSize: 11, letterSpacing: 1.2,
     textTransform: "uppercase", color: Colors.text3,

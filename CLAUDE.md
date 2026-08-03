@@ -15,7 +15,7 @@ Core tables: `profiles`, `trails`, `hikes`, `comments`, `likes`, `follows`, `hik
 
 `saved_hikes` was **dropped** — it had zero rows and zero client references, a leftover of the removed save-a-hike-log feature. Don't re-add it.
 
-`profiles.avatar_preset` (text, nullable) exists for a preset-icon picker. The column is live; **the picker UI, `lib/avatars.ts` and the Settings surface were never built**, so nothing writes it yet.
+`profiles.avatar_preset` (text, nullable) holds a preset-icon key (`pine-tree`, `terrain`, …) defined in `lib/avatars.ts`. It is **mutually exclusive with `avatar_url`**: the Settings picker clears whichever one you didn't just choose, so a row never carries both. Read it only through `<Avatar>` — see the shared modules section.
 
 Views: `trail_rating_stats` (avg_rating/rating_count computed from `hikes.overall_score`, not the old static `trails.rating`), `trails_with_ratings` (all of `trails` plus `effective_rating`/`rating_count` — Discover's "Top Rated" sort uses this).
 
@@ -96,6 +96,7 @@ Phase 2 (Universal Links / App Links, so links open the app directly) is **block
 
 - `lib/units.ts` — distance/elevation formatting and conversion. Storage is always miles/feet.
 - `lib/format.ts` — `displayName()`, `profileInitials()`, `timeAgo()`, date formatting.
+- `lib/avatars.ts` + `components/Avatar.tsx` — **every avatar in the app.** `<Avatar profile={p} size={n} />`, optionally `ringWidth`/`ringColor`. Precedence is photo, then preset, then initials. Do not hand-roll `avatar_url ? <Image> : <initials>` again: seven screens did, and two of them (the feed and Discover People) never rendered `avatar_url` at all, so uploading a picture appeared to do nothing on the two screens where people are seen most. The initials disc colour is hashed from the user id — it used to be indexed by list position, which made the same person a different colour per screen. Any query feeding an avatar must select `avatar_url, avatar_preset` *and* `id`.
 - `lib/badges.ts` — thresholds, checks and copy.
 - `lib/username.ts` — regex and normalization; write usernames only via `AuthContext.claimUsername`.
 - `lib/upload.ts` — image upload; see the Blob note under Storage.

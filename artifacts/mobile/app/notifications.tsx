@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Platform,
   Pressable,
   RefreshControl,
@@ -17,7 +16,8 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { findBadgeDefinition } from "@/lib/badges";
-import { displayName, profileInitials, timeAgo } from "@/lib/format";
+import { displayName, timeAgo } from "@/lib/format";
+import Avatar from "@/components/Avatar";
 
 type Notif = {
   id: string;
@@ -33,7 +33,11 @@ type FollowRequest = {
   follower_id: string;
   created_at: string;
   full_name: string | null;
+  // Selected by the query but previously dropped in the mapping, so a request
+  // from someone with only a handle rendered as "Anonymous Hiker".
+  username: string | null;
   avatar_url: string | null;
+  avatar_preset: string | null;
 };
 
 export default function NotificationsScreen() {
@@ -143,7 +147,7 @@ export default function NotificationsScreen() {
     // Fetch pending follow requests (always, regardless of notif prefs)
     const { data: requests } = await supabase
       .from("follows")
-      .select("follower_id, created_at, profiles(full_name, username, avatar_url)")
+      .select("follower_id, created_at, profiles(full_name, username, avatar_url, avatar_preset)")
       .eq("following_id", session.user.id)
       .eq("status", "pending")
       .order("created_at", { ascending: false });
@@ -153,7 +157,9 @@ export default function NotificationsScreen() {
         follower_id: r.follower_id,
         created_at: r.created_at,
         full_name: r.profiles?.full_name ?? null,
+        username: r.profiles?.username ?? null,
         avatar_url: r.profiles?.avatar_url ?? null,
+        avatar_preset: r.profiles?.avatar_preset ?? null,
       })));
     }
 
@@ -246,12 +252,7 @@ export default function NotificationsScreen() {
               <Text style={styles.sectionLabel}>Follow Requests ({followRequests.length})</Text>
               {followRequests.map(req => (
                 <View key={req.follower_id} style={styles.requestItem}>
-                  <View style={styles.requestAvatar}>
-                    {req.avatar_url
-                      ? <Image source={{ uri: req.avatar_url }} style={styles.requestAvatarImg} />
-                      : <Text style={styles.requestAvatarText}>{profileInitials(req)}</Text>
-                    }
-                  </View>
+                  <Avatar profile={{ ...req, id: req.follower_id }} size={40} />
                   <Text style={styles.requestName} numberOfLines={1}>{displayName(req)}</Text>
                   <View style={styles.requestActions}>
                     <Pressable
@@ -319,9 +320,6 @@ const styles = StyleSheet.create({
   notifTime: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3 },
   sectionLabel: { fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: Colors.text3, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8, fontFamily: "Inter_500Medium" },
   requestItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  requestAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surface2, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  requestAvatarImg: { width: 40, height: 40, borderRadius: 20 },
-  requestAvatarText: { fontFamily: "Inter_700Bold", fontSize: 16, color: Colors.accent },
   requestName: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text },
   requestActions: { flexDirection: "row", gap: 8 },
   acceptBtn: { paddingVertical: 7, paddingHorizontal: 16, borderRadius: 16, backgroundColor: Colors.green2 },

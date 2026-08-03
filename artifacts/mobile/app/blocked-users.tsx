@@ -4,7 +4,6 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Platform,
   Pressable,
   StyleSheet,
@@ -15,9 +14,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { ANONYMOUS_LABEL, displayName, profileInitials } from "@/lib/format";
+import { ANONYMOUS_LABEL, displayName } from "@/lib/format";
+import Avatar from "@/components/Avatar";
 
-type BlockedUser = { id: string; full_name: string | null; username: string | null; avatar_url: string | null; blockRowId?: string };
+type BlockedUser = { id: string; full_name: string | null; username: string | null; avatar_url: string | null; avatar_preset: string | null; blockRowId?: string };
 
 export default function BlockedUsersScreen() {
   const { profile } = useAuth();
@@ -34,7 +34,7 @@ export default function BlockedUsersScreen() {
     const { data: blockRows } = await supabase.from("blocks").select("id, blocked_id").eq("blocker_id", profile.id);
     if (blockRows && blockRows.length > 0) {
       const ids = blockRows.map((r: any) => r.blocked_id);
-      const { data: profiles } = await supabase.from("profiles").select("id, full_name, username, avatar_url").in("id", ids);
+      const { data: profiles } = await supabase.from("profiles").select("id, full_name, username, avatar_url, avatar_preset").in("id", ids);
       if (profiles) {
         const rowMap: Record<string, string> = {};
         blockRows.forEach((r: any) => { rowMap[r.blocked_id] = r.id; });
@@ -85,13 +85,7 @@ export default function BlockedUsersScreen() {
           <Text style={styles.sectionLabel}>Blocked Users ({blockedUsers.length})</Text>
           {blockedUsers.map(u => (
             <View key={u.id} style={styles.blockedRow}>
-              <View style={styles.blockedAvatar}>
-                {u.avatar_url ? (
-                  <Image source={{ uri: u.avatar_url }} style={styles.blockedAvatarImg} />
-                ) : (
-                  <Text style={styles.blockedAvatarText}>{profileInitials(u)}</Text>
-                )}
-              </View>
+              <Avatar profile={u} size={40} />
               <Text style={styles.blockedName} numberOfLines={1}>{displayName(u)}</Text>
               <Pressable
                 onPress={() => unblockUser(u.id, displayName(u))}
@@ -117,9 +111,6 @@ const styles = StyleSheet.create({
   emptySubtext: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, textAlign: "center" },
   sectionLabel: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.text3, textTransform: "uppercase", letterSpacing: 0.5, paddingHorizontal: 20, marginBottom: 8, marginTop: 8 },
   blockedRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  blockedAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surface2, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  blockedAvatarImg: { width: 40, height: 40, borderRadius: 20 },
-  blockedAvatarText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text3 },
   blockedName: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text },
   unblockBtn: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3 },
   unblockBtnText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.text2 },

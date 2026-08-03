@@ -19,7 +19,8 @@ import { Feather } from "@expo/vector-icons";
   import { useAuth } from "@/context/AuthContext";
   import { sendPushNotification } from "@/lib/notifications";
   import { formatDistance, formatElevation } from "@/lib/units";
-  import { ANONYMOUS_LABEL, displayName, getDiffColor, getInitials, timeAgo } from "@/lib/format";
+  import { displayName, getDiffColor, timeAgo } from "@/lib/format";
+  import Avatar, { type AvatarProfile } from "@/components/Avatar";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
   import { showActionSheet } from "@/lib/actionSheet";
   import { shareEntity, sharingAvailable } from "@/lib/share";
@@ -31,9 +32,8 @@ import { Feather } from "@expo/vector-icons";
     overall_score: number; notes: string; date: string; user_id: string;
     trail_id: string | null; dim_ratings: { name: string; score: number }[];
     userName?: string; photos?: string[]; commentCount?: number;
+    author?: AvatarProfile;
   };
-
-  const AVATAR_COLORS = ["#2a3d2a", "#2d2a3d", "#3d2a2a", "#2a3340", "#3d3020"];
 
   export default function FeedScreen() {
     const { session, profile } = useAuth();
@@ -78,13 +78,15 @@ import { Feather } from "@expo/vector-icons";
       const userIds = [...new Set(hikesData.map((h: any) => h.user_id))];
       const hikeIds = hikesData.map((h: any) => h.id);
       const [profilesRes, photosRes, commentsRes, likesRes] = await Promise.all([
-        supabase.from("profiles").select("id, full_name, username").in("id", userIds),
+        supabase.from("profiles").select("id, full_name, username, avatar_url, avatar_preset").in("id", userIds),
         supabase.from("hike_photos").select("hike_id, photo_url").in("hike_id", hikeIds),
         supabase.from("comments").select("hike_id").in("hike_id", hikeIds),
         supabase.from("likes").select("hike_id").in("hike_id", hikeIds),
       ]);
-      const profileMap: Record<string, string> = {};
-      if (profilesRes.data) profilesRes.data.forEach((p: any) => { profileMap[p.id] = displayName(p); });
+      // The whole row, not just a formatted name — the card renders an avatar
+      // from it too, and displayName() already handles a missing entry.
+      const profileMap: Record<string, AvatarProfile> = {};
+      if (profilesRes.data) profilesRes.data.forEach((p: any) => { profileMap[p.id] = p; });
       const photoMap: Record<string, string[]> = {};
       if (photosRes.data) photosRes.data.forEach((p: any) => {
         if (!photoMap[p.hike_id]) photoMap[p.hike_id] = [];
@@ -97,7 +99,7 @@ import { Feather } from "@expo/vector-icons";
       setLikeCounts(prev => ({ ...prev, ...counts }));
       setHasMore(hikesData.length === PAGE_SIZE);
       return hikesData.map((h: any) => ({
-        ...h, userName: profileMap[h.user_id] || ANONYMOUS_LABEL,
+        ...h, userName: displayName(profileMap[h.user_id]), author: profileMap[h.user_id],
         photos: photoMap[h.id] || [], commentCount: commentMap[h.id] || 0,
       }));
     };
@@ -203,13 +205,11 @@ import { Feather } from "@expo/vector-icons";
     // render short, since it ran after pagination.
     const visibleHikes = hikes;
 
-    const renderCard = ({ item: hike, index: idx }: { item: FeedHike; index: number }) => {
+    const renderCard = ({ item: hike }: { item: FeedHike }) => {
       const diffColor = getDiffColor(hike.difficulty);
       const isLiked = likedIds.has(hike.id);
       const likeCount = likeCounts[hike.id] || 0;
       const isTrailBookmarked = hike.trail_id ? trailBookmarkIds.has(hike.trail_id) : false;
-      const initials = getInitials(hike.userName || "");
-      const avatarBg = AVATAR_COLORS[idx % AVATAR_COLORS.length];
       const isOwnHike = hike.user_id === session?.user.id;
 
       return (
@@ -267,9 +267,7 @@ import { Feather } from "@expo/vector-icons";
 
           <View style={styles.cardFooter}>
             <Pressable onPress={() => router.push({ pathname: "/user-profile", params: { id: hike.user_id } })} style={styles.userChip}>
-              <View style={[styles.avatar, { backgroundColor: avatarBg }]}>
-                <Text style={styles.avatarText}>{initials}</Text>
-              </View>
+              <Avatar profile={hike.author ?? { id: hike.user_id }} size={28} />
               <View>
                 <Text style={styles.userName}>{hike.userName}</Text>
                 <Text style={styles.userTime}>{timeAgo(hike.date)}</Text>
@@ -424,8 +422,6 @@ import { Feather } from "@expo/vector-icons";
     notes: { fontSize: 13, color: Colors.text3, fontFamily: "Inter_400Regular", fontStyle: "italic", lineHeight: 18, marginTop: 4 },
     cardFooter: { padding: 12, borderTopWidth: 1, borderTopColor: Colors.border, flexDirection: "row", alignItems: "center" },
     userChip: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
-    avatar: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-    avatarText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: Colors.accent },
     userName: { fontSize: 13, color: Colors.text2, fontFamily: "Inter_500Medium" },
     userTime: { fontSize: 11, color: Colors.text3 },
     actions: { flexDirection: "row", alignItems: "center", gap: 4 },
