@@ -24,6 +24,7 @@ import { Feather } from "@expo/vector-icons";
   import { ANONYMOUS_LABEL, displayName, formatFullDate, getDiffColor, getInitials, timeAgo } from "@/lib/format";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
   import { showActionSheet } from "@/lib/actionSheet";
+  import { shareEntity, sharingAvailable } from "@/lib/share";
 
   type HikeDetail = {
     id: string; trail_name: string; location: string; distance_mi: number;
@@ -217,13 +218,21 @@ import { Feather } from "@expo/vector-icons";
             onPress={() =>
               showActionSheet(
                 hike.trail_name || "Hike",
-                isOwnHike
-                  ? [{ label: "Delete hike", destructive: true, onPress: confirmDeleteHike }]
-                  : [{
-                      label: "Report post",
-                      destructive: true,
-                      onPress: () => setReportTarget({ hikeId: id, reportedUserId: hike.user_id, label: "Report post" }),
-                    }]
+                [
+                  ...(sharingAvailable
+                    ? [{
+                        label: "Share hike",
+                        onPress: () => { shareEntity("hike", id, `${hike.trail_name || "A hike"} on Summit`); },
+                      }]
+                    : []),
+                  ...(isOwnHike
+                    ? [{ label: "Delete hike", destructive: true, onPress: confirmDeleteHike }]
+                    : [{
+                        label: "Report post",
+                        destructive: true,
+                        onPress: () => setReportTarget({ hikeId: id, reportedUserId: hike.user_id, label: "Report post" }),
+                      }]),
+                ]
               )
             }
             disabled={deleting}

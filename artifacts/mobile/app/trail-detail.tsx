@@ -25,6 +25,8 @@ import {
 } from "@/lib/units";
 import { fetchRatingStats, formatRatingDisplay, TrailRatingStats } from "@/lib/ratings";
 import TrailMap from "@/components/TrailMap";
+import { showActionSheet } from "@/lib/actionSheet";
+import { shareEntity, sharingAvailable } from "@/lib/share";
 import { buildTrailTips } from "@/lib/trailTips";
 
 
@@ -170,7 +172,25 @@ export default function TrailDetailScreen() {
           <Feather name="chevron-left" size={28} color={Colors.text} />
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>Trail Details</Text>
-        <View style={{ width: 36 }} />
+        {/* This screen had no overflow menu. The spacer stays when sharing is
+            unavailable so the title keeps its centred position either way. */}
+        {sharingAvailable && trail ? (
+          <Pressable
+            onPress={() =>
+              showActionSheet(trail.name || "Trail", [
+                {
+                  label: "Share trail",
+                  onPress: () => { shareEntity("trail", trail.id, `${trail.name || "A trail"} on Summit`); },
+                },
+              ])
+            }
+            style={({ pressed }) => [{ width: 36, alignItems: "center" }, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Feather name="more-vertical" size={20} color={Colors.text3} />
+          </Pressable>
+        ) : (
+          <View style={{ width: 36 }} />
+        )}
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>

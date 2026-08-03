@@ -20,6 +20,7 @@ import { Feather } from "@expo/vector-icons";
   import { displayName, formatShortDate, getDiffColor, profileInitials } from "@/lib/format";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
   import { showActionSheet } from "@/lib/actionSheet";
+  import { shareEntity, sharingAvailable } from "@/lib/share";
   import {
     distanceFromMiles,
     elevationFromFeet,
@@ -134,6 +135,14 @@ import { Feather } from "@expo/vector-icons";
     const openProfileActions = () => {
       if (!profile) return;
       showActionSheet(displayName(profile), [
+        // Sharing a profile is the growth path, so it leads the menu -- but
+        // only once there is a landing site for the link to reach.
+        ...(sharingAvailable && profile.username
+          ? [{
+              label: "Share profile",
+              onPress: () => { shareEntity("profile", profile.username, `${displayName(profile)} on Summit`); },
+            }]
+          : []),
         { label: isBlocked ? "Unblock" : "Block", destructive: !isBlocked, onPress: handleBlock },
         {
           label: "Report account",
