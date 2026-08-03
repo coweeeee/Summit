@@ -36,7 +36,7 @@ import { Feather } from "@expo/vector-icons";
   };
 
   export default function FeedScreen() {
-    const { session, profile } = useAuth();
+    const { session, profile, loading: authLoading } = useAuth();
     const distanceUnit = profile?.distance_unit ?? "imperial";
     const insets = useSafeAreaInsets();
     const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -51,6 +51,11 @@ import { Feather } from "@expo/vector-icons";
     const [loadingMore, setLoadingMore] = useState(false);
     const [hasMore, setHasMore] = useState(true);
     const offsetRef = useRef(0);
+
+    // Ticket for whole-list fetches. Every call that replaces `hikes` takes the
+    // next number, and commits its result only if it still holds the newest —
+    // see replaceFeed.
+    const loadSeqRef = useRef(0);
 
     const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
     const [toast, setToast] = useState("");
@@ -116,50 +121,94 @@ import { Feather } from "@expo/vector-icons";
       if (data) setTrailBookmarkIds(new Set(data.map((d: any) => d.trail_id)));
     };
 
+    /**
+     * Fetch page zero and replace the list — but only if nothing newer started
+     * meanwhile.
+     *
+     * Both callers below reset the list, so two of them in flight at once used
+     * to be decided by which network response happened to land last. That is
+     * how your own hikes reached the feed: a fetch issued before the session
+     * was known skips the `neq` filter, and if it finished second it overwrote
+     * the correctly filtered result. `await` does not cancel anything, so
+     * dropping the stale response is the only way to make the outcome
+     * independent of timing.
+     *
+     * The flags are cleared only by whichever call is still current, so a
+     * superseded one cannot hide a spinner the live request still needs.
+     */
+    const replaceFeed = async (seq: number) => {
+      try {
+        const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks()]);
+        if (seq !== loadSeqRef.current) return;
+        setHikes(page);
+        offsetRef.current = page.length;
+      } finally {
+        if (seq === loadSeqRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    };
+
     const load = async () => {
+      const seq = ++loadSeqRef.current;
       setLoading(true);
       offsetRef.current = 0;
-      const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks()]);
-      setHikes(page);
-      offsetRef.current = page.length;
-      setLoading(false);
+      await replaceFeed(seq);
     };
 
     const loadMore = async () => {
       if (loadingMore || !hasMore) return;
+      // Reads the ticket without taking one: appending is not a reset. If the
+      // list is replaced while this page is in flight, its rows belong to a
+      // list that no longer exists and appending them would interleave two
+      // different result sets.
+      const seq = loadSeqRef.current;
       setLoadingMore(true);
-      const page = await fetchPage(offsetRef.current);
-      if (page.length > 0) {
-        // Same guard as Discover: a hike logged between page fetches shifts the
-        // offsets and can re-serve a row the list already holds.
-        setHikes(prev => {
-          const seen = new Set(prev.map(h => h.id));
-          return [...prev, ...page.filter(h => !seen.has(h.id))];
-        });
-        offsetRef.current += page.length;
+      try {
+        const page = await fetchPage(offsetRef.current);
+        if (seq !== loadSeqRef.current) return;
+        if (page.length > 0) {
+          // Same guard as Discover: a hike logged between page fetches shifts the
+          // offsets and can re-serve a row the list already holds.
+          setHikes(prev => {
+            const seen = new Set(prev.map(h => h.id));
+            return [...prev, ...page.filter(h => !seen.has(h.id))];
+          });
+          offsetRef.current += page.length;
+        }
+      } finally {
+        setLoadingMore(false);
       }
-      setLoadingMore(false);
     };
 
     const onRefresh = useCallback(async () => {
+      const seq = ++loadSeqRef.current;
       setRefreshing(true);
       offsetRef.current = 0;
       setHasMore(true);
-      const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks()]);
-      setHikes(page);
-      offsetRef.current = page.length;
-      setRefreshing(false);
+      await replaceFeed(seq);
     }, [session]);
 
-    // Keyed on the user id, not just mount. The feed excludes your own hikes,
-    // and on a cold start this effect ran before the session was restored from
-    // storage -- so the filter was skipped and the feed showed everyone's
-    // hikes, yours included, until something else happened to refetch.
+    // Waits for auth to settle before fetching at all. `AuthGate` returns null
+    // while loading rather than blocking the tree, so the tab navigator mounts
+    // and this screen runs before `getSession()` resolves. supabase-js has
+    // already read the token from storage by then and attaches it, so the
+    // request succeeds and returns rows -- it is only `session` in React state
+    // that is still null, which is exactly what skips the own-hike filter. So
+    // the symptom was not an empty feed but a feed containing your own hikes.
+    //
+    // replaceFeed's ticket makes a late response harmless on its own; this
+    // makes it not happen, and saves an unfiltered round trip that could only
+    // ever be discarded.
     //
     // Depends on session?.user.id rather than session: Supabase returns a new
     // session object on every token refresh, which would otherwise reload the
     // feed roughly every hour for no reason.
-    useEffect(() => { load(); }, [session?.user.id]);
+    useEffect(() => {
+      if (authLoading) return;
+      load();
+    }, [session?.user.id, authLoading]);
 
     const toggleLike = async (e: any, hikeId: string) => {
       e.stopPropagation?.();
