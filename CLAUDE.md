@@ -124,6 +124,35 @@ Phase 2 (Universal Links / App Links, so links open the app directly) is **block
 - Display names: seven inert `@example.com` test accounts were deleted, leaving two profiles. One still has `full_name = null` **and** `username = null`, so it renders as "Anonymous Hiker". That is expected until it sets a username in Settings, not a bug. All name fallbacks now go through `displayName()` / `profileInitials()` in `lib/format.ts` — before that, seven different strings ("Anonymous Hiker", "Anonymous", "Someone", "this user", "Profile", "Hiker", "Your Name") covered the same case, and screens that never selected `username` showed "Anonymous Hiker" even for users who had a perfectly good handle.
 - Admin/moderation surface: `reports` and `trail_requests` can be written by users and read back only by their author, and there is still no in-app queue for either. Both now **announce themselves** — a Database Webhook on INSERT calls `report-alert`, which posts to a Slack/Discord channel; triage happens in the Supabase dashboard. Seeing a request is not the same as resolving one: `trail_requests.status` is `CHECK (status IN ('pending','added','declined'))` but **nothing anywhere writes `added` or `declined`**, there is no path from an approved request to an actual `trails` row, and the requester is never told what happened. Closing that loop needs a real admin surface and is not built.
 
+## Wishlist — specified but not built
+
+### Trail "Good to know" overhaul
+
+Layers on top of what already shipped. `lib/trailTips.ts` replaced three identical hardcoded strings on all 225 trails with per-trail tips derived from elevation-per-mile, distance, tags and live weather. That stands; this proposal is the more ambitious version built over it. **Do not start the derived-stats half without the two decisions at the bottom.**
+
+Split into two categories, which differ in where the data comes from and therefore in how they should be stored.
+
+**1. Trail facts** — parking situation, cell signal dead zones, water sources/refill points, dog policy, restroom at trailhead.
+
+These barely change and are not derivable from hike logs. Add fields directly to the `trails` table, or a separate `trail_facts` table if versioning/edit history matters. Populated once per trail — either by the user directly, or eventually a crowdsourced "suggest an edit" flow with light moderation.
+
+Explicitly **not** derived from aggregating logs. Treating these as log-derived means new trails show nothing until dozens of people have logged there, with inconsistent noise in the meantime.
+
+**2. Derived stats** — typical start time pattern ("most hikers start before 7am here"), recent condition reports (mud, snow, closures from hike notes/photos in the last N days), difficulty vs. similar-elevation trails nearby, common reported hazards (exposure, scrambles, stream crossings).
+
+Needs real log volume, but the data mostly already exists:
+
+- **Start time**: already timestamped on every hike log. No new column — just `group by trail_id` over existing data.
+- **Conditions/hazards**: the one real gap. Needs structured multi-select tags added at log time (muddy, icy, closed section, bugs bad, etc.) rather than trying to parse free-text notes with NLP.
+- **Compute as a view**, following the pattern already in this schema (`trail_rating_stats`, `trails_with_ratings`) — e.g. a `trail_conditions_summary` view filtered to the last 90 days, self-updating as new hikes are logged, not a manually maintained table.
+
+**Two decisions needed before building the derived-stats half.** The trail-facts half has no such gate and can be scoped and started on its own timeline without waiting on these.
+
+1. **Minimum sample size before a derived stat is shown at all.** Don't show "most people start before 7am" off two logged hikes. Needs a cold-start threshold decided.
+2. **Aggregates only, never traceable to an individual user.** Same privacy consideration as the earlier "Early Bird" badge discussion — a badge or stat that reveals someone's individual hiking-time pattern is a real safety concern, not just a preference.
+
+Follow the standing convention when picking this up: **propose a recommendation for both open decisions rather than guessing**, same as every other product-tradeoff item.
+
 ## Working conventions to keep
 
 - Never grant `anon` write or read access on a new table without a specific reason — default to authenticated-only + RLS
