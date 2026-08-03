@@ -49,6 +49,18 @@ type PublicProfile = {
   totalMiles: number
 }
 
+type PublicTrail = {
+  kind: 'trail'
+  name: string | null
+  location: string | null
+  region: string | null
+  distanceMi: number | null
+  elevationFt: number | null
+  difficulty: string | null
+  description: string | null
+  tags: string[]
+}
+
 type PublicHike = {
   kind: 'hike'
   trailName: string | null
@@ -126,6 +138,30 @@ async function loadHike(hikeId: string): Promise<PublicHike | null> {
   }
 }
 
+// Trails are the public catalogue, not user content -- no is_private to
+// respect and nothing personal in the row. The whitelist is still explicit,
+// so ingestion bookkeeping like needs_review or external_id cannot leak.
+async function loadTrail(trailId: string): Promise<PublicTrail | null> {
+  const { data: trail } = await admin
+    .from('trails')
+    .select('name, location, region, distance_mi, elevation_ft, difficulty, description, tags')
+    .eq('id', trailId)
+    .maybeSingle()
+  if (!trail) return null
+
+  return {
+    kind: 'trail',
+    name: trail.name,
+    location: trail.location,
+    region: trail.region,
+    distanceMi: trail.distance_mi === null ? null : Number(trail.distance_mi),
+    elevationFt: trail.elevation_ft === null ? null : Number(trail.elevation_ft),
+    difficulty: trail.difficulty,
+    description: trail.description,
+    tags: Array.isArray(trail.tags) ? trail.tags.slice(0, 4) : [],
+  }
+}
+
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'GET') return json({ error: 'Method not allowed' }, 405)
@@ -133,12 +169,15 @@ Deno.serve(async req => {
   const url = new URL(req.url)
   const type = url.searchParams.get('type')
   const id = url.searchParams.get('id')
-  if (!id || (type !== 'profile' && type !== 'hike')) {
-    return json({ error: 'Expected ?type=profile|hike&id=...' }, 400)
+  if (!id || (type !== 'profile' && type !== 'hike' && type !== 'trail')) {
+    return json({ error: 'Expected ?type=profile|hike|trail&id=...' }, 400)
   }
 
   try {
-    const data = type === 'profile' ? await loadProfile(id) : await loadHike(id)
+    const data =
+      type === 'profile' ? await loadProfile(id)
+      : type === 'hike' ? await loadHike(id)
+      : await loadTrail(id)
     if (!data) return json(NOT_SHAREABLE, 200)
     return json({ ok: true, ...data }, 200)
   } catch (_) {

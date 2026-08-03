@@ -35,6 +35,7 @@ function esc(value: unknown): string {
 
 type Preview =
   | { ok: true; kind: "profile"; username: string | null; displayName: string | null; bio: string | null; avatarUrl: string | null; hikeCount: number; totalMiles: number }
+  | { ok: true; kind: "trail"; name: string | null; location: string | null; region: string | null; distanceMi: number | null; elevationFt: number | null; difficulty: string | null; description: string | null; tags: string[] }
   | { ok: true; kind: "hike"; trailName: string | null; location: string | null; distanceMi: number | null; elevationFt: number | null; difficulty: string | null; date: string | null; authorName: string | null; authorUsername: string | null; authorAvatarUrl: string | null }
   | { ok: false };
 
@@ -131,7 +132,7 @@ export default async function handler(req: Request): Promise<Response> {
       },
     });
 
-  if (!id || (type !== "profile" && type !== "hike")) return html(notFoundPage(origin), 404);
+  if (!id || (type !== "profile" && type !== "hike" && type !== "trail")) return html(notFoundPage(origin), 404);
 
   let data: Preview = { ok: false };
   try {
@@ -147,7 +148,8 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (!data.ok) return html(notFoundPage(origin), 404);
 
-  const canonical = `${origin}/${type === "profile" ? "u" : "h"}/${encodeURIComponent(id)}`;
+  const routePrefix = type === "profile" ? "u" : type === "hike" ? "h" : "t";
+  const canonical = `${origin}/${routePrefix}/${encodeURIComponent(id)}`;
   const ogFor = (params: Record<string, string>) =>
     `${origin}/api/og?${new URLSearchParams(params).toString()}`;
 
@@ -166,6 +168,28 @@ export default async function handler(req: Request): Promise<Response> {
           { label: "Hikes", value: String(data.hikeCount) },
           { label: "Miles", value: String(data.totalMiles) },
         ],
+      })
+    );
+  }
+
+  if (data.kind === "trail") {
+    const name = data.name || "A trail";
+    const where = [data.location, data.region].filter(Boolean).join(" · ");
+    const tstats: { label: string; value: string }[] = [];
+    if (data.distanceMi != null) tstats.push({ label: "Distance", value: `${data.distanceMi} mi` });
+    if (data.elevationFt != null) tstats.push({ label: "Elevation", value: `${data.elevationFt} ft` });
+    if (data.difficulty) tstats.push({ label: "Difficulty", value: data.difficulty });
+
+    return html(
+      page({
+        title: `${name} — on Summit`,
+        description: data.description || `${name}${where ? ` in ${where}` : ""}, on Summit.`,
+        ogImage: ogFor({ kind: "hike", title: name, sub: where, a: data.distanceMi != null ? `${data.distanceMi} mi` : "", b: data.elevationFt != null ? `${data.elevationFt} ft` : "" }),
+        canonical,
+        appLink: `${APP_SCHEME}://t/${id}`,
+        heading: name,
+        sub: data.description || where || "A trail on Summit.",
+        stats: tstats,
       })
     );
   }

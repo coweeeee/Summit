@@ -1,7 +1,17 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
-    { "source": "/u/:username", "destination": "/api/share?type=profile&id=:username" },
-    { "source": "/h/:id", "destination": "/api/share?type=hike&id=:id" }
+    {
+      "source": "/u/:username",
+      "destination": "/api/share?type=profile&id=:username"
+    },
+    {
+      "source": "/h/:id",
+      "destination": "/api/share?type=hike&id=:id"
+    },
+    {
+      "source": "/t/:id",
+      "destination": "/api/share?type=trail&id=:id"
+    }
   ]
 }
