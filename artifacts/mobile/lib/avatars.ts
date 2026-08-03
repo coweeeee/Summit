@@ -25,7 +25,8 @@ export type AvatarPreset = {
 };
 
 /**
- * The picker grid, in display order. Sixteen fills a 4x4 grid evenly.
+ * The picker grid, in display order. Twenty fills the grid's five columns
+ * evenly; sixteen left one icon stranded on a row of its own.
  *
  * Every `icon` here is verified against the MaterialCommunityIcons glyphmap
  * shipped with @expo/vector-icons — a name that does not exist renders as a
@@ -49,6 +50,10 @@ export const AVATAR_PRESETS: AvatarPreset[] = [
   { key: "waves",          icon: "waves",          label: "Water",     color: Colors.sky },
   { key: "snowflake",      icon: "snowflake",      label: "Snow",      color: Colors.text2 },
   { key: "weather-sunset", icon: "weather-sunset", label: "Sunset",    color: Colors.amber2 },
+  { key: "cactus",         icon: "cactus",         label: "Cactus",    color: Colors.green2 },
+  { key: "flower",         icon: "flower",         label: "Flower",    color: Colors.red },
+  { key: "owl",            icon: "owl",            label: "Owl",       color: Colors.amber },
+  { key: "island",         icon: "island",         label: "Island",    color: Colors.green },
 ];
 
 const PRESETS_BY_KEY = new Map(AVATAR_PRESETS.map(p => [p.key, p]));

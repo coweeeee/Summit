@@ -620,6 +620,10 @@ const styles = StyleSheet.create({
   presetGrid: {
     flexDirection: "row", flexWrap: "wrap",
     gap: 12, padding: 16, justifyContent: "center",
+    // Exactly five columns (5 x 52 + 4 x 12), so the twenty presets always
+    // fill four whole rows instead of reflowing to a ragged last row on a
+    // wider screen.
+    maxWidth: 5 * 52 + 4 * 12 + 32, alignSelf: "center",
   },
   presetCell: {
     width: 52, height: 52, borderRadius: 26,
