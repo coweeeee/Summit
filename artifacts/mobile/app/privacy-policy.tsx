@@ -158,7 +158,7 @@ export default function PrivacyPolicyScreen() {
         <SectionTitle>10. Contact Us</SectionTitle>
         <Paragraph>
           If you have questions or concerns about this Privacy Policy or our data practices,
-          please contact us at privacy@summitapp.com.
+          please contact us at sneakergoathead1@gmail.com.
         </Paragraph>
 
         <Paragraph style={styles.approvalNote}>
