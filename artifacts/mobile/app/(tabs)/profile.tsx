@@ -21,6 +21,7 @@ import { Feather } from "@expo/vector-icons";
   import { BADGE_DEFINITIONS, badgeProgress, isEarlyBirdStart } from "@/lib/badges";
   import { displayName, formatShortDate, getDiffColor } from "@/lib/format";
   import Avatar from "@/components/Avatar";
+  import HikeRowIcon from "@/components/HikeRowIcon";
   import {
     distanceFromMiles,
     elevationFromFeet,
@@ -222,7 +223,7 @@ import { Feather } from "@expo/vector-icons";
                   onPress={() => router.push({ pathname: "/hike-detail", params: { id: hike.id } })}
                   style={({ pressed }) => [styles.hikeItem, { opacity: pressed ? 0.6 : 1 }]}
                 >
-                  <View style={styles.hikeIcon}><Feather name="trending-up" size={18} color={Colors.green} /></View>
+                  <HikeRowIcon tags={hike.trailTags} size={40} />
                   <View style={styles.hikeInfo}>
                     <Text style={styles.hikeName} numberOfLines={1}>{hike.trailName}</Text>
                     <Text style={styles.hikeMeta}>{formatDistance(hike.distanceMi, distanceUnit)} · {formatElevation(hike.elevationFt, distanceUnit)} · {formatShortDate(hike.date)}</Text>
@@ -395,7 +396,6 @@ import { Feather } from "@expo/vector-icons";
     discoverBtn: { marginTop: 8, paddingVertical: 10, paddingHorizontal: 24, borderRadius: 20, backgroundColor: Colors.green2 },
     discoverBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "#fff" },
     hikeItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
-    hikeIcon: { width: 40, height: 40, borderRadius: 10, backgroundColor: Colors.surface, alignItems: "center", justifyContent: "center" },
     hikeInfo: { flex: 1 },
     hikeName: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text, marginBottom: 2 },
     hikeMeta: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3 },

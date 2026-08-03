@@ -33,7 +33,7 @@ export type AvatarPreset = {
  * blank box rather than throwing, so a typo is silent. `backpack` is the
  * obvious one to reach for and does *not* exist; MDI calls it `bag-personal`.
  */
-export const AVATAR_PRESETS: AvatarPreset[] = [
+export const AVATAR_PRESETS = [
   { key: "terrain",        icon: "terrain",        label: "Summit",    color: Colors.sky },
   { key: "pine-tree",      icon: "pine-tree",      label: "Pine",      color: Colors.green },
   { key: "tent",           icon: "tent",           label: "Camp",      color: Colors.amber },
@@ -54,9 +54,22 @@ export const AVATAR_PRESETS: AvatarPreset[] = [
   { key: "flower",         icon: "flower",         label: "Flower",    color: Colors.red },
   { key: "owl",            icon: "owl",            label: "Owl",       color: Colors.amber },
   { key: "island",         icon: "island",         label: "Island",    color: Colors.green },
-];
+] as const satisfies readonly AvatarPreset[];
 
-const PRESETS_BY_KEY = new Map(AVATAR_PRESETS.map(p => [p.key, p]));
+/**
+ * Union of the keys above, rather than plain `string`.
+ *
+ * This is what lets anything mapping *to* a preset — `lib/trailIcons.ts` — be
+ * checked at compile time instead of failing silently at render. A mistyped
+ * key stops being a blank icon nobody notices and becomes a type error.
+ */
+export type AvatarPresetKey = (typeof AVATAR_PRESETS)[number]["key"];
+
+// Explicitly keyed by `string`, not by AvatarPresetKey. getAvatarPreset takes
+// whatever the database holds, which may be a key this build has never heard
+// of — that lookup returning undefined is the documented behaviour below, not
+// something to type away.
+const PRESETS_BY_KEY = new Map<string, AvatarPreset>(AVATAR_PRESETS.map(p => [p.key, p]));
 
 /**
  * Resolve a stored key, or undefined if it is unknown.

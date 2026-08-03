@@ -18,6 +18,7 @@ import { Feather } from "@expo/vector-icons";
   import { sendPushNotification } from "@/lib/notifications";
   import { displayName, formatShortDate, getDiffColor } from "@/lib/format";
   import Avatar from "@/components/Avatar";
+  import HikeRowIcon from "@/components/HikeRowIcon";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
   import { showActionSheet } from "@/lib/actionSheet";
   import { shareEntity, sharingAvailable } from "@/lib/share";
@@ -38,7 +39,10 @@ import { Feather } from "@expo/vector-icons";
     username: string | null;
     is_private: boolean;
   };
-  type Hike = { id: string; trail_name: string; location: string; distance_mi: number; elevation_ft: number; overall_score: number; difficulty: string; date: string; };
+  // `trails` is the embedded row from the hikes.trail_id FK, present only when
+  // the hike was logged against a catalogue trail. Rows written with a free-text
+  // trail name have no trail_id and so no tags — HikeRowIcon's default covers it.
+  type Hike = { id: string; trail_name: string; location: string; distance_mi: number; elevation_ft: number; overall_score: number; difficulty: string; date: string; trails?: { tags: string[] | null } | null; };
 
   export default function UserProfileScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -67,7 +71,7 @@ import { Feather } from "@expo/vector-icons";
           // pulled this user's notification and unit preferences, which are
           // nobody else's business.
           supabase.from("profiles").select("id, full_name, bio, avatar_url, avatar_preset, username, is_private").eq("id", id).single(),
-          supabase.from("hikes").select("*").eq("user_id", id).order("date", { ascending: false }).limit(20),
+          supabase.from("hikes").select("*, trails(tags)").eq("user_id", id).order("date", { ascending: false }).limit(20),
         ]);
         if (p) {
           setProfile(p);
@@ -334,7 +338,7 @@ import { Feather } from "@expo/vector-icons";
                       onPress={() => router.push({ pathname: "/hike-detail", params: { id: hike.id } })}
                       style={({ pressed }) => [styles.hikeItem, { opacity: pressed ? 0.6 : 1 }]}
                     >
-                      <View style={styles.hikeIcon}><Feather name="trending-up" size={16} color={Colors.green} /></View>
+                      <HikeRowIcon tags={hike.trails?.tags} size={36} />
                       <View style={styles.hikeInfo}>
                         <Text style={styles.hikeName} numberOfLines={1}>{hike.trail_name}</Text>
                         <Text style={styles.hikeMeta}>
@@ -403,7 +407,6 @@ import { Feather } from "@expo/vector-icons";
     empty: { alignItems: "center", paddingTop: 40, gap: 10 },
     emptyText: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3 },
     hikeItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
-    hikeIcon: { width: 36, height: 36, borderRadius: 9, backgroundColor: Colors.surface, alignItems: "center", justifyContent: "center" },
     hikeInfo: { flex: 1 },
     hikeName: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text, marginBottom: 2 },
     hikeMeta: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3 },
