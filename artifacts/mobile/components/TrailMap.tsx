@@ -71,6 +71,12 @@ export default function TrailMap({
         showsHorizontalScrollIndicator={false}
         showsVerticalScrollIndicator={false}
       />
+      {/* The embedded map is for orientation; actually walking there means
+          handing the coordinates to a real maps app. Top-right so it never
+          covers the OpenTopoMap attribution along the bottom. */}
+      <Pressable onPress={() => openInMapsApp(lat, lng, name)} style={styles.openBtn}>
+        <Text style={styles.openBtnText}>Open in Maps</Text>
+      </Pressable>
     </View>
   );
 }
@@ -78,6 +84,8 @@ export default function TrailMap({
 const styles = StyleSheet.create({
   container: { borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: Colors.border },
   webview: { flex: 1, backgroundColor: Colors.bg3 },
+  openBtn: { position: "absolute", top: 8, right: 8, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 14, backgroundColor: "rgba(0,0,0,0.6)", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)" },
+  openBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: "#fff" },
   fallback: { alignItems: "center", justifyContent: "center", backgroundColor: Colors.bg3, gap: 4 },
   fallbackIcon: { fontSize: 28 },
   fallbackName: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text },

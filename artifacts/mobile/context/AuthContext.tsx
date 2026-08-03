@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
+  import AsyncStorage from '@react-native-async-storage/async-storage'
   import { Session } from '@supabase/supabase-js'
   import { Alert } from 'react-native'
   import { supabase } from '@/lib/supabase'
@@ -34,6 +35,33 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
   }
 
   const AuthContext = createContext<AuthContextType>({} as AuthContextType)
+
+  /**
+   * Whether supabase-js still has a session persisted locally.
+   *
+   * Read straight from storage rather than through the client, because this
+   * exists precisely to second-guess `getSession()` when it reports no session.
+   * supabase-js keys the entry `sb-<project-ref>-auth-token`, so it is matched
+   * by shape instead of by reconstructing the ref from the URL.
+   *
+   * A refresh token surviving here means the user never signed out -- signOut()
+   * clears the entry, and so does a refresh the server actively rejects. What
+   * it cannot clear is a refresh that never reached the server at all, which is
+   * the case this distinguishes.
+   */
+  async function hasPersistedSession(): Promise<boolean> {
+    try {
+      const keys = await AsyncStorage.getAllKeys()
+      const authKey = keys.find(k => /^sb-.+-auth-token$/.test(k))
+      if (!authKey) return false
+      const raw = await AsyncStorage.getItem(authKey)
+      if (!raw) return false
+      return !!JSON.parse(raw)?.refresh_token
+    } catch {
+      // Unreadable or malformed storage is not evidence of a session.
+      return false
+    }
+  }
 
   function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
     return Promise.race([
@@ -80,11 +108,28 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 
       withTimeout(supabase.auth.getSession(), 10_000)
         .then(async ({ data: { session } }) => {
+          if (!session) {
+            // getSession() resolves with a null session in two very different
+            // situations: the user is genuinely signed out, or it could not
+            // reach the server to refresh and swallowed the network error.
+            // Treating both as "signed out" bounced offline users with a
+            // perfectly valid session to a login form they cannot use without
+            // a network. A persisted refresh token tells the two apart.
+            if (await hasPersistedSession()) {
+              setNetworkError(true)
+              setLoading(false)
+              return
+            }
+            setSession(null)
+            setLoading(false)
+            return
+          }
+
           setSession(session)
           // Awaited, so the app never renders past the gate with a session but
           // no profile. A profile that won't load surfaces the same retry screen
           // as an unreachable server rather than silently wrong preferences.
-          if (session && !(await fetchProfile(session.user.id))) {
+          if (!(await fetchProfile(session.user.id))) {
             setNetworkError(true)
           }
           setLoading(false)

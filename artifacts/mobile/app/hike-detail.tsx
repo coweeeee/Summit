@@ -23,6 +23,7 @@ import { Feather } from "@expo/vector-icons";
   import { formatDistance, formatElevation } from "@/lib/units";
   import { ANONYMOUS_LABEL, displayName, formatFullDate, getDiffColor, getInitials, timeAgo } from "@/lib/format";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
+  import { showActionSheet } from "@/lib/actionSheet";
 
   type HikeDetail = {
     id: string; trail_name: string; location: string; distance_mi: number;
@@ -210,25 +211,29 @@ import { Feather } from "@expo/vector-icons";
             <Feather name="chevron-left" size={28} color={Colors.text} />
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>{hike.trail_name}</Text>
-          {!isOwnHike ? (
-            <Pressable
-              onPress={() => setReportTarget({ hikeId: id, reportedUserId: hike.user_id, label: "Report post" })}
-              style={({ pressed }) => [styles.headerAction, { opacity: pressed ? 0.6 : 1 }]}
-            >
-              <Feather name="flag" size={18} color={Colors.text3} />
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={confirmDeleteHike}
-              disabled={deleting}
-              style={({ pressed }) => [styles.headerAction, { opacity: pressed || deleting ? 0.6 : 1 }]}
-            >
-              {deleting
-                ? <ActivityIndicator size="small" color={Colors.red} />
-                : <Feather name="trash-2" size={18} color={Colors.red} />
-              }
-            </Pressable>
-          )}
+          {/* One overflow button in a fixed position whether the hike is
+              yours or not. Only its contents differ. */}
+          <Pressable
+            onPress={() =>
+              showActionSheet(
+                hike.trail_name || "Hike",
+                isOwnHike
+                  ? [{ label: "Delete hike", destructive: true, onPress: confirmDeleteHike }]
+                  : [{
+                      label: "Report post",
+                      destructive: true,
+                      onPress: () => setReportTarget({ hikeId: id, reportedUserId: hike.user_id, label: "Report post" }),
+                    }]
+              )
+            }
+            disabled={deleting}
+            style={({ pressed }) => [styles.headerAction, { opacity: pressed || deleting ? 0.6 : 1 }]}
+          >
+            {deleting
+              ? <ActivityIndicator size="small" color={Colors.red} />
+              : <Feather name="more-vertical" size={20} color={Colors.text3} />
+            }
+          </Pressable>
         </View>
 
         <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
@@ -315,15 +320,29 @@ import { Feather } from "@expo/vector-icons";
                     <View style={styles.commentHeader}>
                       <Text style={styles.commentName}>{c.userName}</Text>
                       <Text style={styles.commentTime}>{timeAgo(c.created_at)}</Text>
-                      {isOwn ? (
-                        <Pressable onPress={() => Alert.alert("Delete comment?", "", [{ text: "Cancel" }, { text: "Delete", style: "destructive", onPress: () => deleteComment(c.id) }])}>
-                          <Feather name="trash-2" size={13} color={Colors.text3} />
-                        </Pressable>
-                      ) : (
-                        <Pressable onPress={() => setReportTarget({ commentId: c.id, reportedUserId: c.user_id, label: "Report comment" })}>
-                          <Feather name="flag" size={13} color={Colors.text3} />
-                        </Pressable>
-                      )}
+                      <Pressable
+                        onPress={() =>
+                          showActionSheet(
+                            c.userName || "Comment",
+                            isOwn
+                              ? [{
+                                  label: "Delete comment",
+                                  destructive: true,
+                                  onPress: () => Alert.alert("Delete comment?", "", [
+                                    { text: "Cancel", style: "cancel" },
+                                    { text: "Delete", style: "destructive", onPress: () => deleteComment(c.id) },
+                                  ]),
+                                }]
+                              : [{
+                                  label: "Report comment",
+                                  destructive: true,
+                                  onPress: () => setReportTarget({ commentId: c.id, reportedUserId: c.user_id, label: "Report comment" }),
+                                }]
+                          )
+                        }
+                      >
+                        <Feather name="more-horizontal" size={15} color={Colors.text3} />
+                      </Pressable>
                     </View>
                     <Text style={styles.commentText}>{c.content}</Text>
                   </View>

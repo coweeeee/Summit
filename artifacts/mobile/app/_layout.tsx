@@ -151,7 +151,18 @@ import {
   }
 
   const gateStyles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: Colors.bg, alignItems: "center", justifyContent: "center", padding: 32 },
+    // Absolute, not flex. AuthGate and Stack are sibling children of a flex
+    // column, so two flex:1 children would split the screen between the retry
+    // UI and the navigator behind it rather than the gate covering it. This
+    // never surfaced before because networkError was effectively unreachable.
+    container: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 10,
+      backgroundColor: Colors.bg,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 32,
+    },
     icon: { fontSize: 48, marginBottom: 16 },
     title: { fontFamily: "Inter_700Bold", fontSize: 22, color: Colors.text, marginBottom: 8, textAlign: "center" },
     sub: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3, textAlign: "center", marginBottom: 32 },
