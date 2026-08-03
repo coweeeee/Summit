@@ -149,7 +149,15 @@ import { Feather } from "@expo/vector-icons";
       setRefreshing(false);
     }, [session]);
 
-    useEffect(() => { load(); }, []);
+    // Keyed on the user id, not just mount. The feed excludes your own hikes,
+    // and on a cold start this effect ran before the session was restored from
+    // storage -- so the filter was skipped and the feed showed everyone's
+    // hikes, yours included, until something else happened to refetch.
+    //
+    // Depends on session?.user.id rather than session: Supabase returns a new
+    // session object on every token refresh, which would otherwise reload the
+    // feed roughly every hour for no reason.
+    useEffect(() => { load(); }, [session?.user.id]);
 
     const toggleLike = async (e: any, hikeId: string) => {
       e.stopPropagation?.();
