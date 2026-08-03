@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+
+    // api/og.tsx builds its card with JSX. Without this the Vercel build fails
+    // with TS17004 ("Cannot use JSX unless the '--jsx' flag is provided") --
+    // this project sits outside the pnpm workspace, so no tsconfig above it
+    // applies and it needs its own.
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+
+    // @vercel/og's own types.d.ts opens with `/// <reference types="react" />`
+    // and `/// <reference types="node" />`, so both have to be resolvable even
+    // though nothing here imports React directly.
+    "types": ["node", "react"],
+
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["api/**/*.ts", "api/**/*.tsx"]
+}
