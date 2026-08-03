@@ -4,7 +4,6 @@ import { Feather } from "@expo/vector-icons";
   import {
     ActivityIndicator,
     Alert,
-    Image,
     Modal,
     Platform,
     Pressable,
@@ -20,7 +19,8 @@ import { Feather } from "@expo/vector-icons";
   import { useHikes } from "@/context/HikesContext";
   import { supabase } from "@/lib/supabase";
   import { BADGE_DEFINITIONS, badgeProgress, isEarlyBirdStart } from "@/lib/badges";
-  import { displayName, formatShortDate, getDiffColor, profileInitials } from "@/lib/format";
+  import { displayName, formatShortDate, getDiffColor } from "@/lib/format";
+  import Avatar from "@/components/Avatar";
   import {
     distanceFromMiles,
     elevationFromFeet,
@@ -30,7 +30,7 @@ import { Feather } from "@expo/vector-icons";
   } from "@/lib/units";
 
   type SavedTrail = { id: string; name: string; location: string; difficulty: string; rating: number; distance_mi: number; elevation_ft: number; };
-  type FollowUser = { id: string; full_name: string | null; username: string | null; avatar_url: string | null; };
+  type FollowUser = { id: string; full_name: string | null; username: string | null; avatar_url: string | null; avatar_preset: string | null; };
 
   // Icon and colour are the only presentation-specific parts of a badge; the
   // name, the copy and the earning rule all come from lib/badges so this screen
@@ -110,7 +110,7 @@ import { Feather } from "@expo/vector-icons";
         userIds = (data || []).map((f: any) => f.following_id);
       }
       if (userIds.length > 0) {
-        const { data: users } = await supabase.from("profiles").select("id, full_name, username, avatar_url").in("id", userIds);
+        const { data: users } = await supabase.from("profiles").select("id, full_name, username, avatar_url, avatar_preset").in("id", userIds);
         setFollowUsers(users || []);
       } else {
         setFollowUsers([]);
@@ -128,7 +128,6 @@ import { Feather } from "@expo/vector-icons";
       setSavedTrails(prev => prev.filter(t => t.id !== trailId));
     };
 
-    const avatarUrl = profile?.avatar_url;
     const elevLabel = `Elev. ${elevationUnitLabel(distanceUnit)}`;
 
     return (
@@ -147,13 +146,7 @@ import { Feather } from "@expo/vector-icons";
         >
           <View style={styles.profileHeader}>
             <Pressable onPress={() => router.push("/settings")} style={styles.avatarWrap}>
-              {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
-              ) : (
-                <View style={styles.avatarFallback}>
-                  <Text style={styles.avatarText}>{profileInitials(profile)}</Text>
-                </View>
-              )}
+              <Avatar profile={profile} size={74} ringWidth={2.5} />
               <View style={styles.avatarEditDot}>
                 <Feather name="camera" size={10} color="#fff" />
               </View>
@@ -352,13 +345,7 @@ import { Feather } from "@expo/vector-icons";
               <ScrollView>
                 {followUsers.map(u => (
                   <Pressable key={u.id} style={styles.followUserRow} onPress={() => { setShowFollowModal(null); router.push({ pathname: "/user-profile", params: { id: u.id } }); }}>
-                    <View style={styles.followUserAvatar}>
-                      {u.avatar_url ? (
-                        <Image source={{ uri: u.avatar_url }} style={styles.followUserAvatarImg} />
-                      ) : (
-                        <Text style={styles.followUserAvatarText}>{profileInitials(u)}</Text>
-                      )}
-                    </View>
+                    <Avatar profile={u} size={42} />
                     <Text style={styles.followUserName}>{displayName(u)}</Text>
                     <Feather name="chevron-right" size={16} color={Colors.text3} />
                   </Pressable>
@@ -378,9 +365,6 @@ import { Feather } from "@expo/vector-icons";
     settingsBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.surface2, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border2 },
     profileHeader: { alignItems: "center", paddingTop: 8, paddingBottom: 20, paddingHorizontal: 20 },
     avatarWrap: { position: "relative", marginBottom: 12 },
-    avatarImg: { width: 74, height: 74, borderRadius: 37, borderWidth: 2.5, borderColor: Colors.green },
-    avatarFallback: { width: 74, height: 74, borderRadius: 37, backgroundColor: Colors.surface2, borderWidth: 2.5, borderColor: Colors.green, alignItems: "center", justifyContent: "center" },
-    avatarText: { fontFamily: "Inter_700Bold", fontSize: 28, color: Colors.accent },
     avatarEditDot: { position: "absolute", bottom: 0, right: 0, width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.green2, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: Colors.bg },
     name: { fontFamily: "Inter_700Bold", fontSize: 22, color: Colors.text, marginBottom: 4 },
     bio: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, marginBottom: 20, textAlign: "center" },
@@ -443,9 +427,6 @@ import { Feather } from "@expo/vector-icons";
     followModalTitle: { fontFamily: "Inter_600SemiBold", fontSize: 18, color: Colors.text },
     center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60 },
     followUserRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
-    followUserAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: Colors.surface2, alignItems: "center", justifyContent: "center" },
-    followUserAvatarImg: { width: 42, height: 42, borderRadius: 21 },
-    followUserAvatarText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.accent },
     followUserName: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.text },
   });
   

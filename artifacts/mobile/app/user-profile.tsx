@@ -4,7 +4,6 @@ import { Feather } from "@expo/vector-icons";
   import {
     ActivityIndicator,
     Alert,
-    Image,
     Platform,
     Pressable,
     ScrollView,
@@ -17,7 +16,8 @@ import { Feather } from "@expo/vector-icons";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
   import { sendPushNotification } from "@/lib/notifications";
-  import { displayName, formatShortDate, getDiffColor, profileInitials } from "@/lib/format";
+  import { displayName, formatShortDate, getDiffColor } from "@/lib/format";
+  import Avatar from "@/components/Avatar";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
   import { showActionSheet } from "@/lib/actionSheet";
   import { shareEntity, sharingAvailable } from "@/lib/share";
@@ -34,6 +34,7 @@ import { Feather } from "@expo/vector-icons";
     full_name: string | null;
     bio: string | null;
     avatar_url: string | null;
+    avatar_preset: string | null;
     username: string | null;
     is_private: boolean;
   };
@@ -65,7 +66,7 @@ import { Feather } from "@expo/vector-icons";
           // Only the columns the Profile type declares — `select("*")` also
           // pulled this user's notification and unit preferences, which are
           // nobody else's business.
-          supabase.from("profiles").select("id, full_name, bio, avatar_url, username, is_private").eq("id", id).single(),
+          supabase.from("profiles").select("id, full_name, bio, avatar_url, avatar_preset, username, is_private").eq("id", id).single(),
           supabase.from("hikes").select("*").eq("user_id", id).order("date", { ascending: false }).limit(20),
         ]);
         if (p) {
@@ -228,13 +229,7 @@ import { Feather } from "@expo/vector-icons";
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
           <View style={styles.profileTop}>
             <View style={styles.avatarWrap}>
-              {profile.avatar_url ? (
-                <Image source={{ uri: profile.avatar_url }} style={styles.avatarImg} />
-              ) : (
-                <View style={styles.avatarFallback}>
-                  <Text style={styles.avatarText}>{profileInitials(profile)}</Text>
-                </View>
-              )}
+              <Avatar profile={profile} size={74} ringWidth={2.5} />
               {targetIsPrivate && (
                 <View style={styles.lockBadge}>
                   <Feather name="lock" size={10} color="#fff" />
@@ -382,9 +377,6 @@ import { Feather } from "@expo/vector-icons";
     moreBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
     profileTop: { alignItems: "center", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20 },
     avatarWrap: { marginBottom: 12, position: "relative" },
-    avatarImg: { width: 74, height: 74, borderRadius: 37, borderWidth: 2.5, borderColor: Colors.green },
-    avatarFallback: { width: 74, height: 74, borderRadius: 37, backgroundColor: Colors.surface2, borderWidth: 2.5, borderColor: Colors.green, alignItems: "center", justifyContent: "center" },
-    avatarText: { fontFamily: "Inter_700Bold", fontSize: 28, color: Colors.accent },
     lockBadge: { position: "absolute", bottom: 0, right: 0, width: 20, height: 20, borderRadius: 10, backgroundColor: Colors.text3, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: Colors.bg },
     name: { fontFamily: "Inter_700Bold", fontSize: 22, color: Colors.text, marginBottom: 2 },
     username: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3, marginBottom: 4 },

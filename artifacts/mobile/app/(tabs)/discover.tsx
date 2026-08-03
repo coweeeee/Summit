@@ -24,7 +24,8 @@ import { Feather } from "@expo/vector-icons";
   import { formatDistance, formatElevation } from "@/lib/units";
   import { formatRatingDisplay } from "@/lib/ratings";
   import { sendPushNotification } from "@/lib/notifications";
-  import { displayName, profileInitials } from "@/lib/format";
+  import { displayName } from "@/lib/format";
+  import Avatar from "@/components/Avatar";
   import TrailMap from "@/components/TrailMap";
 
   const PAGE_SIZE = 20;
@@ -49,14 +50,13 @@ import { Feather } from "@expo/vector-icons";
 
   type UserProfile = {
     id: string; full_name: string | null; username: string | null; bio: string | null;
-    is_private: boolean;
+    is_private: boolean; avatar_url: string | null; avatar_preset: string | null;
   };
 
   type FollowState = "accepted" | "pending";
 
   const DIFFICULTY_FILTERS = ["All", "Easy", "Moderate", "Hard", "Expert"];
   const SORT_OPTIONS = ["Top Rated", "Shortest", "Longest", "Most Elevation", "Least Elevation"];
-  const AVATAR_COLORS = ["#2a3d2a", "#2d2a3d", "#3d2a2a", "#2a3340", "#3d3020"];
 
   const US_REGION = { latitude: 39.5, longitude: -98.35, latitudeDelta: 30, longitudeDelta: 40 };
 
@@ -90,7 +90,7 @@ import { Feather } from "@expo/vector-icons";
       setLoading(true);
       // Only the columns the UserProfile type declares — `select("*")` also
       // pulled every listed user's notification and unit preferences.
-      let req = supabase.from("profiles").select("id, full_name, username, bio, is_private").neq("id", session?.user.id || "").limit(20);
+      let req = supabase.from("profiles").select("id, full_name, username, bio, is_private, avatar_url, avatar_preset").neq("id", session?.user.id || "").limit(20);
       // Search name or username — username is the login identity and the handle
       // shown on profiles, and accounts with no full_name are only findable this way.
       if (query.trim()) req = req.or(`full_name.ilike.%${query}%,username.ilike.%${query}%`);
@@ -181,13 +181,11 @@ import { Feather } from "@expo/vector-icons";
             <Text style={styles.sectionLabel}>{search ? "Search results" : "Hikers on Summit"}</Text>
             {users.length === 0 ? (
               <View style={styles.center}><Text style={styles.emptyText}>No users found</Text></View>
-            ) : users.map((user, idx) => {
+            ) : users.map((user) => {
               const isFollowing = !!followStatus[user.id];
               return (
                 <Pressable key={user.id} style={({ pressed }) => [styles.personRow, { opacity: pressed ? 0.8 : 1 }]} onPress={() => router.push({ pathname: "/user-profile", params: { id: user.id } })}>
-                  <View style={[styles.personAvatar, { backgroundColor: AVATAR_COLORS[idx % AVATAR_COLORS.length] }]}>
-                    <Text style={styles.personAvatarText}>{profileInitials(user)}</Text>
-                  </View>
+                  <Avatar profile={user} size={44} />
                   <View style={styles.personInfo}>
                     <Text style={styles.personName}>{displayName(user)}</Text>
                     {user.bio ? <Text style={styles.personBio} numberOfLines={1}>{user.bio}</Text> : null}
@@ -793,8 +791,6 @@ import { Feather } from "@expo/vector-icons";
     calloutRegion: { fontSize: 11, color: "#666", fontFamily: "Inter_400Regular" },
     calloutTap: { fontSize: 11, color: "#4a90d9", fontFamily: "Inter_500Medium" },
     personRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
-    personAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-    personAvatarText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: Colors.accent },
     personInfo: { flex: 1 },
     personName: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text },
     personBio: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3, marginTop: 2 },

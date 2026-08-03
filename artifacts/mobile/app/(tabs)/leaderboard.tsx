@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Platform,
   Pressable,
   RefreshControl,
@@ -17,13 +16,15 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { formatDistance, formatElevation } from "@/lib/units";
-import { displayName, profileInitials } from "@/lib/format";
+import { displayName } from "@/lib/format";
+import Avatar from "@/components/Avatar";
 
 type LeaderEntry = {
   id: string;
   full_name: string | null;
   username: string | null;
   avatar_url: string | null;
+  avatar_preset: string | null;
   value: number;
   rank: number;
 };
@@ -96,7 +97,7 @@ export default function LeaderboardScreen() {
     const userIds = totals.map(t => t.user_id);
     if (userIds.length === 0) { setLeaders([]); setMyRank(null); setLoading(false); setRefreshing(false); return; }
 
-    const { data: profiles } = await supabase.from("profiles").select("id, full_name, username, avatar_url").in("id", userIds);
+    const { data: profiles } = await supabase.from("profiles").select("id, full_name, username, avatar_url, avatar_preset").in("id", userIds);
     const profileMap: Record<string, any> = {};
     if (profiles) profiles.forEach((p: any) => { profileMap[p.id] = p; });
 
@@ -199,15 +200,12 @@ export default function LeaderboardScreen() {
                 <View style={styles.rankWrap}>
                   <RankMedal rank={entry.rank} />
                 </View>
-                <View style={styles.avatarWrap}>
-                  {entry.avatar_url ? (
-                    <Image source={{ uri: entry.avatar_url }} style={styles.avatarImg} />
-                  ) : (
-                    <View style={[styles.avatarFallback, isMe && { borderColor: Colors.accent }]}>
-                      <Text style={styles.avatarText}>{profileInitials(entry)}</Text>
-                    </View>
-                  )}
-                </View>
+                <Avatar
+                  profile={entry}
+                  size={40}
+                  ringWidth={1.5}
+                  ringColor={isMe ? Colors.accent : Colors.border}
+                />
                 <View style={styles.entryInfo}>
                   <Text style={[styles.entryName, isMe && { color: Colors.accent }]}>{displayName(entry)}{isMe ? " (you)" : ""}</Text>
                 </View>
@@ -249,10 +247,6 @@ const styles = StyleSheet.create({
   rankWrap: { width: 36, alignItems: "center" },
   medal: { fontSize: 22 },
   rankNum: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text3 },
-  avatarWrap: { flexShrink: 0 },
-  avatarImg: { width: 40, height: 40, borderRadius: 20 },
-  avatarFallback: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surface2, alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: Colors.border },
-  avatarText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: Colors.accent },
   entryInfo: { flex: 1 },
   entryName: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.text },
   valueWrap: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 10, alignItems: "center" },
