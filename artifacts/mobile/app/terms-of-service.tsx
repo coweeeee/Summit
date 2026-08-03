@@ -140,7 +140,7 @@ export default function TermsOfServiceScreen() {
         <SectionTitle>11. Contact Us</SectionTitle>
         <Paragraph>
           If you have any questions about these Terms, please contact us at
-          support@summitapp.com.
+          sneakergoathead1@gmail.com.
         </Paragraph>
 
         <Paragraph style={styles.approvalNote}>
