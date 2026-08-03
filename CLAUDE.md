@@ -28,7 +28,9 @@ Database functions:
 
 Edge functions (Deno, deployed):
 - `delete-account` — verify_jwt true; deletes the caller's storage files then calls `auth.admin.deleteUser`, which cascades through every table via FK constraints back to `auth.users`
-- `send-notification` — verify_jwt true; takes `{ targetUserId, type: 'like'|'follow'|'comment'|'milestone', title, body, data, badgeKey?, hikeId? }`. Verifies the underlying action actually happened (a real like/follow row, or self-reporting your own milestone) before sending, checks the target's `notif_*` preference, fetches their `push_tokens`, sends via Expo's push API. Call it client-side right after the relevant insert succeeds — there is no DB trigger doing this automatically.
+- `send-notification` — verify_jwt true. **Its source is not in this repo** — `supabase/functions/` holds only `login-with-username`, `report-alert` and `share-preview`, so the only copy of this function is the deployed one. Read it with `get_edge_function` before changing anything, and add the source here if you touch it.
+  **The deployed version (v5) accepts only `'like' | 'follow' | 'milestone'` — not `'comment'`.** `hike-detail.tsx:156` sends `type: "comment"`, which the function rejects with a 400, and `sendPushNotification` never inspects the result, so comment push notifications fail completely silently. `notif_comments` is therefore never consulted server-side; it only filters the in-app list. Either the function is a stale deployment or the client outran it — fix one end before assuming comment pushes work.
+  Takes `{ targetUserId, type, title, body, data, badgeKey?, hikeId? }`. Verifies the underlying action actually happened (a real like/follow row, or self-reporting your own milestone) before sending, checks the target's `notif_*` preference, fetches their `push_tokens`, sends via Expo's push API. Call it client-side right after the relevant insert succeeds — there is no DB trigger doing this automatically.
 - `login-with-username` — **verify_jwt false**, because callers are by definition not signed in. Takes `{ username, password }`, resolves the email with the service role, signs in through a plain anon client so GoTrue's own rate limiting still applies, and returns only a session. An unknown username and a wrong password return an identical response, so it is not a username-enumeration oracle. Email login stays client-side — there is no email to protect, and routing it here would take all logins down whenever the function is down.
 - `report-alert` — **verify_jwt false**; called by a Database Webhook on INSERT and forwards a summary to a Slack/Discord incoming webhook (`REPORT_ALERT_WEBHOOK_URL` secret). Despite the name it serves **both `reports` and `trail_requests`**, dispatching on the payload's `table` field — the name stayed because the reports webhook already points at that path and renaming would mean a window with abuse reports unannounced. `TRAIL_REQUEST_WEBHOOK_URL` optionally routes trail requests to a separate channel, falling back to the reports one. All user-written text passes through `sanitizeForChat()` first: a trail named `@everyone` would otherwise mass-ping the channel on submission. Trigger definitions are recorded in `supabase/webhooks.sql`, since a dashboard-created webhook leaves no trace in the repo. verify_jwt would be useless here since any signed-in user's JWT satisfies it; instead it exact-matches a shared secret. Note the runtime's `SUPABASE_SERVICE_ROLE_KEY` is the **new-format `sb_secret_...` key**, while a dashboard-created webhook stores the **legacy service-role JWT** — different credentials, which is why it 401'd until a dedicated `REPORT_ALERT_SECRET` was used instead.
 - `share-preview` — **verify_jwt false**; backs the public share pages. Reads with the service role and returns an explicitly whitelisted set of fields for `?type=profile|hike|trail`. Private accounts are excluded, and missing/private/owned-by-private all return an identical `{ok:false}`.
@@ -61,7 +63,7 @@ One deliberate consequence: the leaderboard is **viewer-dependent**. A private a
 - Content moderation: report (posts/comments) + block (users). Mutual hiding of *content* is enforced in `can_view_user_content` (see security model). `hike-detail.tsx` still filters comment authors client-side, and that is **not** redundant: the `comments` SELECT policy gates on the hike's owner, not on the commenter. Blocked Accounts list lives in **Settings → Privacy**, not as a public profile tab (Instagram pattern, not a Twitter/X-style visible block list)
 - Settings are now actually functional (they weren't, originally — a full audit found the units toggle and all notification toggles were local-state-only and did nothing):
   - `profiles.distance_unit` ('imperial'|'metric') persisted. `lib/units.ts` is the single source of truth: `formatDistance`/`formatElevation` for display, `distanceToMiles`/`elevationToFeet` and their inverses for input, `distanceUnitLabel`/`elevationUnitLabel` for captions. DB values always stay in miles/feet — the log form converts on the way in and out, so a metric user types km and gets miles stored. Never hardcode a unit string.
-  - `profiles.notif_likes` / `notif_follows` / `notif_milestones` / `notif_comments` persisted, wired to `send-notification`
+  - `profiles.notif_likes` / `notif_follows` / `notif_milestones` / `notif_comments` persisted. Each gates **two** things, which is worth knowing before anyone assumes one is dead: the push notification server-side (`send-notification` reads the target's column and no-ops with `skipped: "preference_disabled"`), and the in-app Notifications list client-side (`notifications.tsx:133` and neighbours filter each category out). The in-app effect is the observable one today, since `push_tokens` is empty and cannot be filled yet. Follow *requests* are deliberately exempt and always shown regardless of preference. Caveat: `notif_comments` has no server-side half — see the `send-notification` note above.
   - Settings reseeds its controls from `profile` via `useEffect`, since `profile` can arrive after the screen mounts
 - Badges: Climber, Explorer (5 hikes), Summit (10 hikes), Trailblazer (25 hikes), Early Bird (hike started before 7 AM local — required adding a real start-time picker to `log.tsx`, since it previously only captured a date). Server-recorded in `user_badges`, idempotent, notification sent on first award. **`lib/badges.ts` is the single source of truth** for thresholds, checks, and copy (`name`, `describe(unit)`, `announce(unit)`, `badgeProgress()`); `profile.tsx` supplies only icon/colour. The notifications list reads awarded badges from `user_badges`, not from a recomputed hike count.
 - Notification taps deep-link to the relevant hike or profile screen
@@ -152,6 +154,61 @@ Needs real log volume, but the data mostly already exists:
 2. **Aggregates only, never traceable to an individual user.** Same privacy consideration as the earlier "Early Bird" badge discussion — a badge or stat that reveals someone's individual hiking-time pattern is a real safety concern, not just a preference.
 
 Follow the standing convention when picking this up: **propose a recommendation for both open decisions rather than guessing**, same as every other product-tradeoff item.
+
+### Repeated trending-up icon in hike lists
+
+**Investigated and scoped, not built — decision pending.** The same trending-up glyph appears on the Climber badge, the "Hikes (N)" filter pill, and then identically on every hike row beneath it. Repetitive, and on the rows it conveys nothing beyond "this is a hike".
+
+`trending-up` is used in three distinct roles. Only the third is the problem:
+
+1. **Elevation marker** — `trail-detail.tsx:218`, `hike-detail.tsx:278`, three tips in `lib/trailTips.ts`. Here it means "elevation gain". Leave alone.
+2. **Aggregate/badge marker** — Climber badge (`profile.tsx:39`), "Hikes (N)" pill (`profile.tsx:201`), "Most Hikes" leaderboard chip (`leaderboard.tsx:55`). Meaningful as an activity marker. Leave alone.
+3. **Per-row hike icon** — `profile.tsx:225` **and `user-profile.tsx:337`**. Two call sites, not one: other people's profiles carry the identical row icon, so any fix must touch both. The feed does not use it (its cards lead with a difficulty pill and photos), so the pattern is confined to those two screens.
+
+**Direction:** reserve trending-up for roles 1 and 2; give each hike row an icon that varies, keyed off the trail's dominant tag, reusing the preset set in `lib/avatars.ts` rather than introducing a second icon vocabulary.
+
+**Tag data (checked, not assumed):** 225 trails, 116 distinct tags, 6 trails with no tags at all. Steep distribution — Views 87, Alpine/Summit 43, Family 41, Unique 37, Desert 28, Forest 25, Waterfall 23, Lake 21, Wildlife 20, then a long tail under 20.
+
+The vocabulary is **two kinds of tag mixed together**, which is the crux:
+
+- *Scenery/terrain* tags map cleanly onto existing presets — Desert→cactus, Forest→pine-tree, Waterfall/Lake→waves, Wildlife/Dog-friendly→paw, Glacier/Arctic→snowflake, Alpine/Summit/Scramble/Ridge-walk→terrain, Backpacking→bag-personal, Multi-day→tent, Coastal→island, Remote→compass, Sunrise→weather-sunset, Views→binoculars.
+- *Character/logistics* tags have no sensible glyph — Unique, Iconic, Historic, Permit, Day-hike, Strenuous, Short, Loop.
+
+So this wants a **priority-ordered lookup over a curated subset**, not a 1:1 table for all 116: take the first tag that has a mapping, so `["Iconic","Waterfall"]` still resolves to waves rather than falling through to the default. No new icon infrastructure needed — `lib/avatars.ts` already holds the glyphs and colours.
+
+**A default is required, not optional.** `hikes.trail_id` is nullable and **1 of the 3 current hikes has no trail at all**, so those rows have no tags to key off — plus the 6 untagged trails and the unmappable tags above. Suggested default `hiking`, which reads as "a hike" and is visually distinct from `trending-up`.
+
+**Plumbing:** neither call site has tags today. `HikesContext` uses `select('*, dim_ratings(*)')` and `user-profile.tsx:70` uses `select("*")`. Both need `trails(tags)` added to the embed — the `hikes.trail_id → trails.id` FK makes that a one-line change each with no extra round trip — plus tags carried on the `Hike` type.
+
+**Effort:**
+- *Tag-based icon* — small, roughly one focused session: a ~40-line mapping module, two one-line query changes, two render swaps. Four files, no migration, no backend.
+- *Drop the row icon entirely* (the fallback) — trivial, ~15 minutes: delete the icon `View` and its style from both rows, check the layout doesn't shift.
+
+**Caveat on verifying the tag version:** with 3 hikes across 2 trails, a simulator pass would exercise at most two or three distinct icons. The mapping's variety cannot be seen until there is more data, so it should be unit-tested directly rather than eyeballed.
+
+### Onboarding and empty states
+
+Not investigated yet. Sharing is live and about to bring cold visitors in, and Feed/Discover/Leaderboard likely read as broken or dead to a brand-new account rather than inviting. Audit the current empty-state copy and CTAs across those three screens and propose improvements. Separately, consider whether a short post-signup walkthrough (log a hike / discover / follow) is worth adding.
+
+### Hike editing screen
+
+Not built. The UPDATE policies on `hikes`, `dim_ratings` and `hike_photos` were written specifically to unblock this earlier in the audit, and the UI never followed. There is currently **no way to fix a typo or a wrong distance on a logged hike**. Scope it.
+
+### Nearby trails using device location
+
+Not built. Every `trails` row already has `lat`/`lng`, so sorting or filtering Discover by distance from the user's current position is real discovery value that does not exist today. Scope the effort and, specifically, what location-permission handling it needs.
+
+### Trail condition tags at log time
+
+Pulled out of the "Good to know" overhaul above as its own smaller, faster win. That item identifies structured condition tags (muddy, icy, closed section, bugs bad, …) as *the one real data gap*; capturing them at log time is useful on its own — a recent-conditions signal for other hikers — well before any derived-stats aggregation is built on top. Independent of the two decisions gating the larger feature.
+
+### Basic moderation follow-through
+
+`reports` and `trail_requests` both alert to Discord now, but there is still no way to **act** on a report — suspend a user, remove content — short of the Supabase dashboard by hand. Fine at the current user count; worth a real plan before sharing brings more people in. Propose options, as with the original moderation-triage discussion.
+
+### Elevation profile chart on hike detail
+
+Not built. A simple line chart over elevation data already being logged. Scoping should start with what charting library is available — check the dependency tree before adding one, since this would be the app's first charting need.
 
 ## Working conventions to keep
 
