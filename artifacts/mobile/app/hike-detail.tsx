@@ -22,7 +22,9 @@ import { Feather } from "@expo/vector-icons";
   import { sendPushNotification } from "@/lib/notifications";
   import { formatDistance, formatElevation } from "@/lib/units";
   import { ANONYMOUS_LABEL, displayName, formatFullDate, getDiffColor, getInitials, timeAgo } from "@/lib/format";
+  import { averageGrade } from "@/lib/elevation";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
+  import SteepnessScale from "@/components/SteepnessScale";
   import { showActionSheet } from "@/lib/actionSheet";
   import { shareEntity, sharingAvailable } from "@/lib/share";
 
@@ -297,6 +299,20 @@ import { Feather } from "@expo/vector-icons";
             {hike.duration_hr != null && <View style={[styles.statBox, styles.statBorder]}><Feather name="clock" size={16} color={Colors.accent} /><Text style={styles.statVal}>{hike.duration_hr.toFixed(1)} hr</Text><Text style={styles.statLbl}>Duration</Text></View>}
             {hike.overall_score > 0 && <View style={[styles.statBox, hike.duration_hr ? styles.statBorder : {}]}><Feather name="star" size={16} color={Colors.amber2} /><Text style={[styles.statVal, { color: Colors.amber2 }]}>{hike.overall_score.toFixed(1)}</Text><Text style={styles.statLbl}>Score</Text></View>}
           </View>
+
+          {/* Gated on elevation being above zero, and that is not the same
+              judgement the trail catalogue needs. There, 0 feet is curated and
+              true — Anhinga Trail really is flat. Here it is ambiguous: the log
+              form submits `parseInt(elevationStr) || 0`, so leaving the field
+              blank stores 0, and the schema cannot tell a flat hike from an
+              unfilled one. Showing "Flat" for a hike somebody simply didn't
+              fill in would assert something we don't know, so this stays quiet
+              instead. The fix is for the form to store null for blank, which is
+              a change to the log and edit screens rather than to this one. */}
+          {(() => {
+            const grade = hike.elevation_ft > 0 ? averageGrade(hike.elevation_ft, hike.distance_mi) : null;
+            return grade ? <SteepnessScale grade={grade} roundTrip /> : null;
+          })()}
 
           {hike.dim_ratings && hike.dim_ratings.length > 0 && (
             <View style={styles.section}>
