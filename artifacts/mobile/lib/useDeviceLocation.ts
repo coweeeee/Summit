@@ -64,9 +64,17 @@ export function useDeviceLocation(enabled: boolean): DeviceLocationState {
       // A LocationUnavailableError carries the real permission state, which is
       // more accurate than whatever we last read — adopt it rather than
       // reporting a generic failure over the top of a specific cause.
+      //
+      // But `granted` is not a cause. It means the permission was fine and the
+      // *fetch* failed — in practice the 12s timeout, which is the documented
+      // primary failure path here. Clearing `error` for that case swallowed the
+      // only signal: nothing downstream renders for `granted`, so the chip
+      // stayed lit, no banner appeared, and the list quietly served Top Rated
+      // under a "Nearest" selection. Keeping the message routes it to
+      // NearbyNotice's error branch, which already offers Try again.
       if (e instanceof LocationUnavailableError) {
         setPermission(e.permission);
-        setError(null);
+        setError(e.permission === "granted" ? e.message : null);
       } else {
         setError(e instanceof Error ? e.message : "Couldn't get your location.");
       }
