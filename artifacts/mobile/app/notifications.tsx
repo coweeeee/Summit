@@ -18,6 +18,7 @@ import { useAuth } from "@/context/AuthContext";
 import { findBadgeDefinition } from "@/lib/badges";
 import { displayName, timeAgo } from "@/lib/format";
 import Avatar from "@/components/Avatar";
+import EmptyState from "@/components/EmptyState";
 
 type Notif = {
   id: string;
@@ -275,11 +276,13 @@ export default function NotificationsScreen() {
           )}
 
           {notifs.length === 0 && followRequests.length === 0 ? (
-            <View style={styles.empty}>
-              <Feather name="bell" size={40} color={Colors.text3} />
-              <Text style={styles.emptyTitle}>No notifications yet</Text>
-              <Text style={styles.emptySubtext}>When someone likes your hike or follows you, it'll show up here</Text>
-            </View>
+            <EmptyState
+              icon="bell"
+              title="No notifications yet"
+              message="Log a hike and follow some people to see activity here."
+              actionLabel="Log a Hike"
+              onAction={() => router.push("/(tabs)/log")}
+            />
           ) : (
             notifs.map((n) => (
               <View key={n.id} style={styles.item}>

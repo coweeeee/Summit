@@ -21,6 +21,7 @@ import { Feather } from "@expo/vector-icons";
   import { BADGE_DEFINITIONS, badgeProgress, isEarlyBirdStart } from "@/lib/badges";
   import { displayName, formatShortDate, getDiffColor } from "@/lib/format";
   import Avatar from "@/components/Avatar";
+  import EmptyState from "@/components/EmptyState";
   import HikeRowIcon from "@/components/HikeRowIcon";
   import {
     distanceFromMiles,
@@ -211,11 +212,22 @@ import { Feather } from "@expo/vector-icons";
           {/* Hikes tab */}
           {activeTab === "hikes" && (
             hikes.length === 0 ? (
-              <View style={styles.empty}>
-                <Feather name="map" size={36} color={Colors.text3} />
-                <Text style={styles.emptyText}>No hikes yet</Text>
-                <Text style={styles.emptySubtext}>Log your first hike to get started</Text>
-              </View>
+              // Gated on hikesLoading. This was wired only to the RefreshControl,
+              // so a cold start asserted "No hikes yet" to someone who has hikes
+              // — and a Log a Hike button on that lie would be worse than the
+              // silence it replaces.
+              hikesLoading ? (
+                <View style={styles.empty}><ActivityIndicator color={Colors.accent} /></View>
+              ) : (
+                <EmptyState
+                  icon="map"
+                  iconSize={36}
+                  title="No hikes yet"
+                  message="Log your first hike to get started."
+                  actionLabel="Log a Hike"
+                  onAction={() => router.push("/(tabs)/log")}
+                />
+              )
             ) : (
               hikes.map(hike => (
                 <Pressable
@@ -244,14 +256,14 @@ import { Feather } from "@expo/vector-icons";
             savedLoading ? (
               <View style={styles.empty}><ActivityIndicator color={Colors.accent} /></View>
             ) : savedTrails.length === 0 ? (
-              <View style={styles.empty}>
-                <Feather name="bookmark" size={36} color={Colors.text3} />
-                <Text style={styles.emptyText}>Nothing saved yet</Text>
-                <Text style={styles.emptySubtext}>Bookmark trails from Discover to save them here</Text>
-                <Pressable onPress={() => router.push("/(tabs)/discover" as any)} style={styles.discoverBtn}>
-                  <Text style={styles.discoverBtnText}>Browse Trails</Text>
-                </Pressable>
-              </View>
+              <EmptyState
+                icon="bookmark"
+                iconSize={36}
+                title="Nothing saved yet"
+                message="Bookmark trails from Discover to save them here."
+                actionLabel="Browse trails"
+                onAction={() => router.push("/(tabs)/discover")}
+              />
             ) : (
               <>
                 <Text style={styles.savedSectionLabel}>Saved Trails</Text>
@@ -320,6 +332,19 @@ import { Feather } from "@expo/vector-icons";
                       const progress = badgeProgress(selectedBadge.key, hikes.length, totalElev, distanceUnit);
                       return progress ? <Text style={styles.badgeProgress}>{progress}</Text> : null;
                     })()}
+                    {!unlocked && (
+                      // Dismiss first: the modal sits above the tab navigator,
+                      // so pushing without closing leaves it covering the
+                      // destination. The overlay Pressable wraps this card, so
+                      // the press must not also reach its dismiss handler —
+                      // closing here makes that harmless either way.
+                      <Pressable
+                        onPress={() => { setSelectedBadge(null); router.push("/(tabs)/log"); }}
+                        style={({ pressed }) => [styles.badgeModalAction, { opacity: pressed ? 0.7 : 1 }]}
+                      >
+                        <Text style={styles.badgeModalActionText}>Log a Hike</Text>
+                      </Pressable>
+                    )}
                   </>
                 );
               })()}
@@ -421,7 +446,12 @@ import { Feather } from "@expo/vector-icons";
     badgeModalUnlockedText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.green },
     badgeModalLocked: { flexDirection: "row", alignItems: "center", gap: 6 },
     badgeModalLockedText: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3 },
-    badgeProgress: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.text2, marginTop: 8 },
+    badgeModalAction: {
+    marginTop: 16, paddingVertical: 11, paddingHorizontal: 22,
+    borderRadius: 12, backgroundColor: Colors.green2,
+  },
+  badgeModalActionText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: "#fff" },
+  badgeProgress: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.text2, marginTop: 8 },
     followModalContainer: { flex: 1, backgroundColor: Colors.bg },
     followModalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
     followModalTitle: { fontFamily: "Inter_600SemiBold", fontSize: 18, color: Colors.text },
