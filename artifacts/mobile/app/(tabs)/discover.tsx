@@ -26,6 +26,7 @@ import { Feather } from "@expo/vector-icons";
   import { sendPushNotification } from "@/lib/notifications";
   import { displayName, getDiffStyle } from "@/lib/format";
   import { sortByDistance, type Coords } from "@/lib/geo";
+  import { regionForCoords } from "@/lib/mapRegion";
   import { LOCATION_SUPPORTED } from "@/lib/location";
   import { useDeviceLocation } from "@/lib/useDeviceLocation";
   import Avatar from "@/components/Avatar";
@@ -250,6 +251,20 @@ import { Feather } from "@expo/vector-icons";
 
     const [trails, setTrails] = useState<TrailRow[]>([]);
     const [mapTrails, setMapTrails] = useState<Trail[]>([]);
+    // Separated from "no results": a failed request and an over-narrow filter
+    // used to render identically, as a map with no pins.
+    const [mapError, setMapError] = useState(false);
+    const [mapTruncated, setMapTruncated] = useState(false);
+    /** Ticket for map fetches, kept apart from loadSeqRef. See fetchMapData. */
+    const mapSeqRef = useRef(0);
+    /**
+     * The camera. A ref rather than a `region` prop because `initialRegion` is
+     * mount-only — react-native-maps latches it per native instance on both
+     * platforms, so re-rendering with a new value does nothing — and a fully
+     * controlled `region` fights the user for the camera on every pan.
+     */
+    const mapRef = useRef<any>(null);
+    const [mapReady, setMapReady] = useState(false);
     // Same reason as PeopleTab: the empty state must not precede the first fetch.
     const [loading, setLoading] = useState(true);
     const [mapLoading, setMapLoading] = useState(false);
@@ -355,7 +370,7 @@ import { Feather } from "@expo/vector-icons";
         case "Most Elevation":  q = q.order("elevation_ft", { ascending: false }); break;
         case "Least Elevation": q = q.order("elevation_ft", { ascending: true  }); break;
       }
-      // Every sort key above is heavily tied — 225 trails share just 11 distinct
+      // Every sort key above is heavily tied — 225 trails share just 12 distinct
       // effective_rating values — and Postgres gives no stable order within a
       // tie. Since each page is its own query, a trail could otherwise land on
       // two pages, producing duplicate ids and React's "same key" warning.
@@ -366,7 +381,14 @@ import { Feather } from "@expo/vector-icons";
 
     const buildMapQuery = () => {
       let q = applyBaseFilters(supabase.from("trails_with_ratings").select("id,name,rating,effective_rating,rating_count,lat,lng,region,difficulty,location"));
-      return q.not("lat", "is", null).not("lng", "is", null).range(0, MAP_FETCH_LIMIT - 1);
+      // `.order("id")` for the same reason the list query has it, one step
+      // further on: without any ordering, `range(0, 299)` returns whichever 300
+      // rows the planner happens to yield, and that set can change after a
+      // VACUUM. A map that silently drops a different arbitrary quarter of the
+      // catalogue each time is worse than one that drops a fixed quarter.
+      return q.not("lat", "is", null).not("lng", "is", null)
+        .order("id", { ascending: true })
+        .range(0, MAP_FETCH_LIMIT - 1);
     };
 
     const fetchPage = async (offset: number): Promise<Trail[]> => {
@@ -383,10 +405,34 @@ import { Feather } from "@expo/vector-icons";
     };
 
     const fetchMapData = async () => {
+      // Its own ticket, not loadSeqRef — that one is documented as covering
+      // whole-list fetches, and the two result sets have nothing to do with
+      // each other. Sharing it works today only because the two view modes are
+      // mutually exclusive, which is a coincidence, not a design.
+      const seq = ++mapSeqRef.current;
       setMapLoading(true);
-      const { data } = await buildMapQuery();
-      setMapTrails(data || []);
-      setMapLoading(false);
+      try {
+        // `error` was not destructured at all, so a failed request rendered as
+        // an empty pin-less map, indistinguishable from "nothing matched these
+        // filters" — the same bug fetchPage's own comment above records as
+        // already fixed on the list path.
+        const { data, error } = await buildMapQuery();
+        if (seq !== mapSeqRef.current) return;
+        if (error) {
+          console.warn("discover: map fetch failed", error.message);
+          setMapError(true);
+          setMapTrails([]);
+          return;
+        }
+        const rows = data ?? [];
+        setMapError(false);
+        setMapTruncated(rows.length >= MAP_FETCH_LIMIT);
+        setMapTrails(rows);
+      } finally {
+        // In a finally so a thrown request — as opposed to one that resolves
+        // with an `error` — cannot leave the tab as a spinner with no way out.
+        if (seq === mapSeqRef.current) setMapLoading(false);
+      }
     };
 
     const fetchSaved = async () => {
@@ -541,6 +587,40 @@ import { Feather } from "@expo/vector-icons";
       if (viewMode === "map") fetchMapData();
     }, [diffFilter, regionFilter, activeCategories, debouncedSearch, viewMode]);
 
+    /**
+     * Point the camera at whatever is currently in the result set.
+     *
+     * One rule for filtered and unfiltered alike — no filters fits all of them,
+     * a region filter fits that subset — so the camera can never be stranded on
+     * a viewport the data has outgrown. The old hardcoded US region left 111 of
+     * 225 trails outside the visible longitude band, and 14 of the 41 region
+     * filters opened on a guaranteed-blank map of central Kansas.
+     *
+     * animateToRegion, not a controlled `region` prop: a controlled region
+     * fights the user for the camera on every pan. This commands it once per
+     * result set and then leaves it alone.
+     */
+    const fitToResults = useCallback(() => {
+      const region = regionForCoords(mapTrails);
+      // Null means nothing to fit — the empty state is rendering instead, and
+      // Android's fitToCoordinates has no empty-array guard of its own.
+      if (region) mapRef.current?.animateToRegion(region, 400);
+    }, [mapTrails]);
+
+    // Fires on data changes for a live map. A freshly mounted one is covered by
+    // onMapReady instead, because animating a map that has not laid out yet is
+    // a silent no-op — react-native-maps bails on a null ref and says nothing.
+    useEffect(() => {
+      if (viewMode !== "map" || mapLoading || !mapReady) return;
+      fitToResults();
+    }, [fitToResults, mapReady, mapLoading, viewMode]);
+
+    // The MapView unmounts when the tab does, so the next one is a new native
+    // instance that has to announce itself again before it can be commanded.
+    useEffect(() => {
+      if (viewMode !== "map") setMapReady(false);
+    }, [viewMode]);
+
     const toggleSave = async (trail: Trail) => {
       if (!session) return;
       const isSaved = savedIds.has(trail.id);
@@ -571,13 +651,35 @@ import { Feather } from "@expo/vector-icons";
       setRegionFilter("All Regions");
       setActiveCategories([]);
       setSortBy("Top Rated");
+      // Clears the search too, now that the search counts toward the badge.
+      // Without this the modal's "Clear all" could leave a badge of 1 that
+      // nothing in the modal is able to clear.
+      setSearch("");
     };
 
+    /**
+     * How many things are currently narrowing or reordering what's on screen.
+     *
+     * Two corrections here, which have to land together — fixing either alone
+     * leaves the badge wrong in the other direction.
+     *
+     * The sort only counts on the list. It genuinely changes what you see
+     * there, so it earns a place; on the map it changes nothing at all, because
+     * a map has no row order and buildMapQuery asks for none. Counting it there
+     * meant the badge asserted an active filter that could not possibly be
+     * having an effect.
+     *
+     * The search term counts on both. It reaches buildListQuery and
+     * buildMapQuery alike via applyBaseFilters, so it has always been a real
+     * filter — it was simply never counted, which let the map show a badge of 0
+     * over a search-narrowed set of pins.
+     */
     const activeFilterCount =
       (diffFilter !== "All" ? 1 : 0) +
       (regionFilter !== "All Regions" ? 1 : 0) +
       activeCategories.length +
-      (sortBy !== "Top Rated" ? 1 : 0);
+      (debouncedSearch.trim() ? 1 : 0) +
+      (viewMode === "list" && sortBy !== "Top Rated" ? 1 : 0);
 
     const renderTrailCard = ({ item: trail }: { item: TrailRow }) => {
       const ds = getDiffStyle(trail.difficulty);
@@ -688,12 +790,56 @@ import { Feather } from "@expo/vector-icons";
           />
         );
       }
-      if (mapLoading) return <View style={styles.center}><ActivityIndicator color={Colors.accent} size="large" /></View>;
+      // Error and no-results both replace the map rather than sitting over it.
+      // A basemap with no pins offers nothing to act on, and the list tab's own
+      // zero state is an EmptyState — the two tabs should not disagree about
+      // what "nothing here" looks like.
+      if (!mapLoading && mapError) {
+        return (
+          <EmptyState
+            icon="alert-circle"
+            iconSize={36}
+            title="Couldn't load the map"
+            message="The trails didn't load. This is usually a connection problem."
+            actionLabel="Try again"
+            onAction={fetchMapData}
+          />
+        );
+      }
+      if (!mapLoading && mapTrails.length === 0) {
+        return (
+          <EmptyState
+            icon="map-pin"
+            iconSize={36}
+            title="No trails to map"
+            message={
+              search.trim()
+                ? `Nothing matches "${search.trim()}"${activeFilterCount > 0 ? " with these filters" : ""}.`
+                : "No trails match these filters."
+            }
+            actionLabel={
+              search.trim() && activeFilterCount > 0
+                ? "Clear search & filters"
+                : search.trim()
+                ? "Clear search"
+                : "Clear filters"
+            }
+            onAction={() => { setSearch(""); clearFilters(); }}
+          />
+        );
+      }
       return (
+        <View style={{ flex: 1 }}>
         <MapView
+          ref={mapRef}
           style={{ flex: 1 }}
+          // Still here, and still only ever used once per native instance —
+          // react-native-maps latches it on first mount on both platforms, so
+          // it cannot be made dynamic. It is the frame before the first fit
+          // lands; everything after that comes from animateToRegion.
           initialRegion={US_REGION}
           userInterfaceStyle="dark"
+          onMapReady={() => { setMapReady(true); fitToResults(); }}
         >
           {mapTrails.map((trail) => {
             if (trail.lat == null || trail.lng == null) return null;
@@ -723,6 +869,25 @@ import { Feather } from "@expo/vector-icons";
             );
           })}
         </MapView>
+        {mapTruncated && (
+          <View style={styles.mapNoticeWrap} pointerEvents="none">
+            <Text style={styles.mapNotice}>
+              Showing the first {MAP_FETCH_LIMIT} matches — narrow the filters to see the rest.
+            </Text>
+          </View>
+        )}
+        {/* An overlay sibling, not an early return. Returning a different
+            element type from this position unmounted the native map on every
+            fetch, which re-latched initialRegion and threw away whatever the
+            user had panned to — on every filter tap and every keystroke.
+            absoluteFill rather than styles.center, which is flex:1 and would
+            take the map's space instead of covering it. */}
+        {mapLoading && (
+          <View style={[StyleSheet.absoluteFill, styles.mapLoadingOverlay]} pointerEvents="none">
+            <ActivityIndicator color={Colors.accent} size="large" />
+          </View>
+        )}
+        </View>
       );
     };
 
@@ -798,15 +963,31 @@ import { Feather } from "@expo/vector-icons";
                     same sortBy the modal does: one code path, two entry points,
                     and the modal chip stays in sync because it reads the same
                     state. */}
+                {/* Disabled rather than hidden on the map. Removing it would
+                    leave people hunting for a control that was there a moment
+                    ago, and would reflow the row on every tab switch; dimming
+                    it says "not applicable here" and the modal explains where
+                    it does apply. It is genuinely inert on the map — a map has
+                    no row order — so leaving it tappable would be the lie. */}
                 {LOCATION_SUPPORTED && (
                   <Pressable
                     onPress={() => setSortBy(nearbyActive ? "Top Rated" : NEAREST_SORT)}
+                    disabled={viewMode === "map"}
                     accessibilityRole="button"
-                    accessibilityState={{ selected: nearbyActive }}
-                    style={[styles.chip, nearbyActive && styles.chipActiveGreen]}
+                    accessibilityState={{ selected: nearbyActive, disabled: viewMode === "map" }}
+                    accessibilityHint={viewMode === "map" ? "Sort by distance in list view" : undefined}
+                    style={[
+                      styles.chip,
+                      nearbyActive && viewMode !== "map" && styles.chipActiveGreen,
+                      viewMode === "map" && styles.chipDisabled,
+                    ]}
                   >
-                    <Feather name="navigation" size={11} color={nearbyActive ? "#fff" : Colors.text3} />
-                    <Text style={[styles.chipText, nearbyActive && styles.chipTextActive]}>Near me</Text>
+                    <Feather
+                      name="navigation"
+                      size={11}
+                      color={nearbyActive && viewMode !== "map" ? "#fff" : Colors.text3}
+                    />
+                    <Text style={[styles.chipText, nearbyActive && viewMode !== "map" && styles.chipTextActive]}>Near me</Text>
                   </Pressable>
                 )}
                 {DIFFICULTY_FILTERS.map(f => {
@@ -919,10 +1100,27 @@ import { Feather } from "@expo/vector-icons";
             </View>
             <ScrollView contentContainerStyle={styles.modalContent}>
               <Text style={styles.modalSectionTitle}>Sort by</Text>
+              {/* The caption the chip row has no space for. Sorting genuinely
+                  does nothing on the map, and this section previously presented
+                  every option as live — you could highlight Nearest, tap Done,
+                  and watch nothing happen. */}
+              {viewMode === "map" && (
+                <Text style={styles.modalSectionNote}>Sort by distance in list view.</Text>
+              )}
               <View style={styles.modalChipsWrap}>
                 {SORT_OPTIONS.map(s => (
-                  <Pressable key={s} onPress={() => setSortBy(s)} style={[styles.modalChip, sortBy === s && styles.modalChipActive]}>
-                    <Text style={[styles.modalChipText, sortBy === s && styles.modalChipTextActive]}>{s}</Text>
+                  <Pressable
+                    key={s}
+                    onPress={() => setSortBy(s)}
+                    disabled={viewMode === "map"}
+                    accessibilityState={{ selected: sortBy === s, disabled: viewMode === "map" }}
+                    style={[
+                      styles.modalChip,
+                      sortBy === s && viewMode !== "map" && styles.modalChipActive,
+                      viewMode === "map" && styles.chipDisabled,
+                    ]}
+                  >
+                    <Text style={[styles.modalChipText, sortBy === s && viewMode !== "map" && styles.modalChipTextActive]}>{s}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -1035,6 +1233,19 @@ import { Feather } from "@expo/vector-icons";
     cardLocation: { fontSize: 12, color: Colors.text3, fontFamily: "Inter_400Regular", flexShrink: 1 },
     cardAway: { fontSize: 12, color: Colors.accent, fontFamily: "Inter_600SemiBold", flexShrink: 0 },
     nearbyNotice: { fontSize: 11, color: Colors.amber, fontFamily: "Inter_400Regular", paddingHorizontal: 20, paddingBottom: 10, lineHeight: 15 },
+    // Shared by the chip row and the modal, so "not applicable here" reads the
+    // same in both places.
+    chipDisabled: { opacity: 0.4 },
+    // The map's own overlays. The loading one is deliberately translucent
+    // rather than opaque: it covers stale pins while the next set loads, which
+    // is more informative than blanking them.
+    mapLoadingOverlay: { alignItems: "center", justifyContent: "center", backgroundColor: "rgba(15,26,15,0.45)" },
+    mapNoticeWrap: { position: "absolute", top: 10, left: 16, right: 16, alignItems: "center" },
+    mapNotice: {
+      fontSize: 11, color: Colors.amber, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 15,
+      paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
+      backgroundColor: "rgba(15,26,15,0.85)", overflow: "hidden",
+    },
     cardDesc: { fontSize: 13, color: Colors.text2, fontFamily: "Inter_400Regular", lineHeight: 18, marginBottom: 10 },
     cardStats: { flexDirection: "row", gap: 20, marginBottom: 10 },
     stat: { gap: 2 },
@@ -1071,6 +1282,7 @@ import { Feather } from "@expo/vector-icons";
     modalDone: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.accent },
     modalContent: { padding: 20, gap: 12, paddingBottom: 60 },
     modalSectionTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text, marginTop: 8, marginBottom: 4 },
+    modalSectionNote: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3, marginBottom: 8, lineHeight: 16 },
     modalChipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
     modalChip: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3 },
     modalChipActive: { backgroundColor: Colors.green2, borderColor: Colors.green2 },
