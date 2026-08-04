@@ -484,13 +484,28 @@ import { Feather } from "@expo/vector-icons";
     };
 
     const renderMapView = () => {
-      if (isExpoGo || !MapView) {
+      if (!MapView) {
+        // The old copy said "unavailable in Expo Go — use a development build".
+        // Both halves are now wrong for the only person who sees this. The
+        // project moved to a local dev client, so `isExpoGo` is false; what
+        // still fires is `!MapView`, because lib/maps.web.ts exports null on
+        // web. So a browser user was being told to use a development build,
+        // which is not a thing they can act on. `isExpoGo` is dropped from the
+        // condition because it is subsumed: MapView is already null there.
+        const onWeb = Platform.OS === "web";
         return (
-          <View style={styles.center}>
-            <Feather name="map" size={36} color={Colors.text3} />
-            <Text style={styles.emptyText}>Map view unavailable in Expo Go</Text>
-            <Text style={[styles.emptyText, { fontSize: 12, marginTop: 4 }]}>Use a development build to enable maps</Text>
-          </View>
+          <EmptyState
+            icon="map"
+            iconSize={36}
+            title={onWeb ? "Map view isn't available on the web app" : "Map view isn't available in this build"}
+            message={
+              onWeb
+                ? "Open Summit on your phone to browse trails on a map. Every trail still has its own map on the trail page."
+                : "Maps need a native build. The trail list has everything else."
+            }
+            actionLabel="Back to list"
+            onAction={() => setViewMode("list")}
+          />
         );
       }
       if (mapLoading) return <View style={styles.center}><ActivityIndicator color={Colors.accent} size="large" /></View>;
