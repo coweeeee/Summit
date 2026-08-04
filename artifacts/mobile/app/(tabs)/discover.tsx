@@ -21,13 +21,17 @@ import { Feather } from "@expo/vector-icons";
   import { supabase } from "@/lib/supabase";
   import { useAuth } from "@/context/AuthContext";
   import RNMapView, { Marker as RNMarker, Callout as RNCallout } from "@/lib/maps";
-  import { formatDistance, formatElevation } from "@/lib/units";
+  import { formatDistance, formatDistanceAway, formatElevation } from "@/lib/units";
   import { formatRatingDisplay } from "@/lib/ratings";
   import { sendPushNotification } from "@/lib/notifications";
   import { displayName, getDiffStyle } from "@/lib/format";
+  import { sortByDistance, type Coords } from "@/lib/geo";
+  import { LOCATION_SUPPORTED } from "@/lib/location";
+  import { useDeviceLocation } from "@/lib/useDeviceLocation";
   import Avatar from "@/components/Avatar";
   import TrailMap from "@/components/TrailMap";
   import EmptyState from "@/components/EmptyState";
+  import NearbyNotice from "@/components/NearbyNotice";
 
   const PAGE_SIZE = 20;
   // The Features list is every distinct tag in the catalogue -- 116 of them,
@@ -35,6 +39,12 @@ import { Feather } from "@expo/vector-icons";
   // of them at once is unusable, so the common ones show and the rest expand.
   const TOP_CATEGORY_COUNT = 12;
   const MAP_FETCH_LIMIT = 300;
+  // "Nearest" is ranked in the client, because the server cannot order by a
+  // distance it does not know — so that sort needs the whole filtered set in one
+  // request rather than a page at a time. 500 clears the current catalogue (225)
+  // with room to grow; if it ever stops clearing it the list says so, rather
+  // than silently ranking whichever subset came back first.
+  const NEARBY_FETCH_LIMIT = 500;
   const isExpoGo = Constants.appOwnership === "expo";
 
   const MapView: any = isExpoGo ? null : RNMapView;
@@ -49,6 +59,15 @@ import { Feather } from "@expo/vector-icons";
     effective_rating: number; rating_count: number;
   };
 
+  /**
+   * A trail as listed, plus how far it is from the viewer.
+   *
+   * `distanceMi` is absent under every sort but Nearest, and null when the trail
+   * has no usable coordinates. Both mean "no distance to show" — neither means
+   * zero, and the card must not render either as a number.
+   */
+  type TrailRow = Trail & { distanceMi?: number | null };
+
   type UserProfile = {
     id: string; full_name: string | null; username: string | null; bio: string | null;
     is_private: boolean; avatar_url: string | null; avatar_preset: string | null;
@@ -57,7 +76,13 @@ import { Feather } from "@expo/vector-icons";
   type FollowState = "accepted" | "pending";
 
   const DIFFICULTY_FILTERS = ["All", "Easy", "Moderate", "Hard", "Expert"];
-  const SORT_OPTIONS = ["Top Rated", "Shortest", "Longest", "Most Elevation", "Least Elevation"];
+  const NEAREST_SORT = "Nearest";
+  // Nearest is only offered where a position can exist. Listing it on web would
+  // mean advertising a sort that can only ever explain why it isn't working —
+  // the map tab already dead-ends there for the same reason.
+  const SORT_OPTIONS = LOCATION_SUPPORTED
+    ? ["Top Rated", NEAREST_SORT, "Shortest", "Longest", "Most Elevation", "Least Elevation"]
+    : ["Top Rated", "Shortest", "Longest", "Most Elevation", "Least Elevation"];
 
   const US_REGION = { latitude: 39.5, longitude: -98.35, latitudeDelta: 30, longitudeDelta: 40 };
 
@@ -223,7 +248,7 @@ import { Feather } from "@expo/vector-icons";
     const [categoryFilters, setCategoryFilters] = useState<string[]>([]);
     const [showAllCategories, setShowAllCategories] = useState(false);
 
-    const [trails, setTrails] = useState<Trail[]>([]);
+    const [trails, setTrails] = useState<TrailRow[]>([]);
     const [mapTrails, setMapTrails] = useState<Trail[]>([]);
     // Same reason as PeopleTab: the empty state must not precede the first fetch.
     const [loading, setLoading] = useState(true);
@@ -234,6 +259,41 @@ import { Feather } from "@expo/vector-icons";
     const [totalCount, setTotalCount] = useState(0);
     const offsetRef = useRef(0);
     const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+
+    // ── Nearest sort ────────────────────────────────────────────────────────
+    const nearbyActive = sortBy === NEAREST_SORT;
+    // Only switched on by choosing the sort, so a user who never uses it is
+    // never prompted and the GPS is never woken for a list ordered by rating.
+    const location = useDeviceLocation(nearbyActive && viewMode === "list");
+    /**
+     * Intent versus capability. `nearbyActive` is what the user asked for;
+     * `nearbyReady` is whether it can actually be delivered.
+     *
+     * When they diverge the list serves the Top Rated ordering and the banner
+     * says why. Discover is entirely usable without location, so this is an
+     * enhancement being offered rather than a gate — but nothing is ever
+     * labelled "nearest first" while it is ordered by something else.
+     */
+    const nearbyReady = nearbyActive && !!location.fix;
+    // The whole distance-ranked set, kept so paging can slice it without
+    // re-querying. Null whenever Nearest is not the active sort.
+    const [nearbyAll, setNearbyAll] = useState<TrailRow[] | null>(null);
+    // True when the catalogue outgrew NEARBY_FETCH_LIMIT, so the ranking covers
+    // only part of it. Surfaced rather than swallowed: a "nearest" list that
+    // quietly ignores half the trails is wrong in a way nobody can see.
+    const [nearbyTruncated, setNearbyTruncated] = useState(false);
+
+    /**
+     * Ticket for whole-list fetches, matching the feed's loadSeqRef.
+     *
+     * The location fix is async and lands *after* first paint, which is exactly
+     * the shape that caused the feed's cold-start races (PRs #3, #7): a fix
+     * requested under one set of filters can resolve after the user has changed
+     * them, and would otherwise reorder a list it knows nothing about. Every
+     * path that writes `trails` takes the next number and re-checks it after
+     * each await.
+     */
+    const loadSeqRef = useRef(0);
 
     useEffect(() => {
       const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -283,7 +343,12 @@ import { Feather } from "@expo/vector-icons";
 
     const buildListQuery = (offset: number) => {
       let q = applyBaseFilters(supabase.from("trails_with_ratings").select("*", { count: "exact" }));
-      switch (sortBy) {
+      // Nearest never reaches the server — it is ranked in the client from a
+      // full fetch. Seeing it here means there is no position yet, so fall back
+      // to the Top Rated ordering rather than dropping through the switch and
+      // serving a list ordered by id, which nobody asked for.
+      const serverSort = sortBy === NEAREST_SORT ? "Top Rated" : sortBy;
+      switch (serverSort) {
         case "Top Rated":       q = q.order("effective_rating", { ascending: false }); break;
         case "Shortest":        q = q.order("distance_mi",  { ascending: true  }); break;
         case "Longest":         q = q.order("distance_mi",  { ascending: false }); break;
@@ -330,11 +395,66 @@ import { Feather } from "@expo/vector-icons";
       if (data) setSavedIds(new Set(data.map((d: any) => d.trail_id)));
     };
 
+    /**
+     * Fetch every trail matching the current filters, ranked by distance.
+     *
+     * One request rather than a page, because ordering by distance means holding
+     * all the candidates at once — the server has no idea where the viewer is.
+     * The `.order("id")` is what makes the fetched set deterministic, which in
+     * turn is what lets sortByDistance's stability guarantee carry through to
+     * paging: without it, two trails at an identical distance could swap places
+     * between slices and hand FlatList a duplicate key.
+     *
+     * Trails with no coordinates are kept, ranked last, with a null distance.
+     * Excluding them server-side would shorten the list in a way that reads as
+     * a filter the user never applied.
+     */
+    const fetchNearbyAll = async (origin: Coords, seq: number): Promise<TrailRow[] | null> => {
+      const { data, error } = await applyBaseFilters(
+        supabase.from("trails_with_ratings").select("*"),
+      ).order("id", { ascending: true }).range(0, NEARBY_FETCH_LIMIT - 1);
+      if (seq !== loadSeqRef.current) return null;
+      if (error) {
+        console.warn("discover: nearby fetch failed", error.message);
+        return null;
+      }
+      const rows = (data ?? []) as Trail[];
+      setNearbyTruncated(rows.length >= NEARBY_FETCH_LIMIT);
+      return sortByDistance(rows, origin);
+    };
+
+    const applyNearbyResult = (ranked: TrailRow[]) => {
+      setNearbyAll(ranked);
+      setTrails(ranked.slice(0, PAGE_SIZE));
+      offsetRef.current = Math.min(PAGE_SIZE, ranked.length);
+      setTotalCount(ranked.length);
+      setHasMore(ranked.length > PAGE_SIZE);
+    };
+
     const load = async () => {
+      const seq = ++loadSeqRef.current;
       setLoading(true);
       offsetRef.current = 0;
       setHasMore(true);
+
+      // Read once: `location.fix` is a dependency of this effect, so capturing
+      // it keeps the branch and the coordinate it ranks against in agreement,
+      // and freezes the coordinate for the life of this result set.
+      const fix = location.fix;
+      if (nearbyActive && fix) {
+        setNearbyAll(null);
+        const [ranked] = await Promise.all([fetchNearbyAll(fix.coords, seq), fetchSaved()]);
+        if (seq !== loadSeqRef.current) return;
+        if (ranked) applyNearbyResult(ranked);
+        setLoading(false);
+        return;
+      }
+
+      // Either an ordinary sort, or Nearest without a position. Both serve
+      // server-ordered pages; NearbyNotice above the list covers the second.
+      setNearbyAll(null);
       const [page] = await Promise.all([fetchPage(0), fetchSaved()]);
+      if (seq !== loadSeqRef.current) return;
       setTrails(page);
       offsetRef.current = page.length;
       setLoading(false);
@@ -342,6 +462,20 @@ import { Feather } from "@expo/vector-icons";
 
     const loadMore = async () => {
       if (loadingMore || !hasMore) return;
+
+      // Nearest pages a set that is already in memory and already ranked. No
+      // request, so no spinner, and no stale page can arrive late. Gated on the
+      // ranked set rather than on the sort: Nearest without a position is being
+      // served server-ordered pages and must use the path below.
+      if (nearbyAll) {
+        const next = nearbyAll.slice(offsetRef.current, offsetRef.current + PAGE_SIZE);
+        if (next.length === 0) { setHasMore(false); return; }
+        setTrails(prev => [...prev, ...next]);
+        offsetRef.current += next.length;
+        setHasMore(offsetRef.current < nearbyAll.length);
+        return;
+      }
+
       setLoadingMore(true);
       const page = await fetchPage(offsetRef.current);
       if (page.length > 0) {
@@ -358,18 +492,50 @@ import { Feather } from "@expo/vector-icons";
     };
 
     const onRefresh = useCallback(async () => {
+      const seq = ++loadSeqRef.current;
       setRefreshing(true);
       offsetRef.current = 0;
       setHasMore(true);
+
+      const fix = location.fix;
+      if (nearbyActive && fix) {
+        const [ranked] = await Promise.all([fetchNearbyAll(fix.coords, seq), fetchSaved()]);
+        if (seq !== loadSeqRef.current) return;
+        if (ranked) applyNearbyResult(ranked);
+        setRefreshing(false);
+        return;
+      }
+
+      // Pull-to-refresh under Nearest with no position re-checks location as
+      // well as reloading. Someone who just granted it in Settings and came
+      // back expects this gesture to pick that up — and nothing else would,
+      // since the app never re-reads permissions on foreground.
+      if (nearbyActive) location.refresh();
+
       const [page] = await Promise.all([fetchPage(0), fetchSaved()]);
+      if (seq !== loadSeqRef.current) return;
       setTrails(page);
       offsetRef.current = page.length;
       setRefreshing(false);
-    }, [diffFilter, regionFilter, activeCategories, sortBy, debouncedSearch, session]);
+    }, [diffFilter, regionFilter, activeCategories, sortBy, debouncedSearch, session, nearbyActive, location.fix]);
 
+    // `location.fix` is a dependency so the list re-ranks the moment a position
+    // lands — that arrival is the async event this screen did not previously
+    // have, and the seq guard above is what keeps it from landing on a list
+    // built under different filters.
     useEffect(() => {
       if (viewMode === "list") load();
-    }, [diffFilter, regionFilter, activeCategories, sortBy, debouncedSearch, viewMode]);
+    }, [diffFilter, regionFilter, activeCategories, sortBy, debouncedSearch, viewMode, location.fix]);
+
+    // "unsupported" is the one state with no action to offer and no way back,
+    // so leaving the sort selected would leave a control that can only
+    // apologise. Every other state keeps the user's choice, because every other
+    // state has something they can do about it. The chip is hidden on
+    // unsupported platforms, so this only fires if the sort was reached some
+    // other way — a persisted selection, or a future entry point.
+    useEffect(() => {
+      if (nearbyActive && location.permission === "unsupported") setSortBy("Top Rated");
+    }, [nearbyActive, location.permission]);
 
     useEffect(() => {
       if (viewMode === "map") fetchMapData();
@@ -413,7 +579,7 @@ import { Feather } from "@expo/vector-icons";
       activeCategories.length +
       (sortBy !== "Top Rated" ? 1 : 0);
 
-    const renderTrailCard = ({ item: trail }: { item: Trail }) => {
+    const renderTrailCard = ({ item: trail }: { item: TrailRow }) => {
       const ds = getDiffStyle(trail.difficulty);
       const isSaved = savedIds.has(trail.id);
       const mapOpen = expandedMapId === trail.id;
@@ -454,7 +620,17 @@ import { Feather } from "@expo/vector-icons";
                 </Text>
               </View>
             </View>
-            <Text style={styles.cardLocation}>{trail.location}</Text>
+            <View style={styles.cardLocationRow}>
+              <Text style={styles.cardLocation} numberOfLines={1}>{trail.location}</Text>
+              {/* `!= null` on purpose: it lets a genuine 0.0 through for someone
+                  standing on the trail, while keeping both "no distance column"
+                  (undefined) and "no coordinates" (null) off the card entirely.
+                  formatDistanceAway returns null again past ~500 miles, where
+                  the `location` line above is the more useful thing to read. */}
+              {trail.distanceMi != null && formatDistanceAway(trail.distanceMi, distanceUnit) && (
+                <Text style={styles.cardAway}>{formatDistanceAway(trail.distanceMi, distanceUnit)} away</Text>
+              )}
+            </View>
             {trail.description ? <Text style={styles.cardDesc} numberOfLines={2}>{trail.description}</Text> : null}
             <View style={styles.cardStats}>
               <View style={styles.stat}><Text style={styles.statVal}>{trail.distance_mi != null ? formatDistance(trail.distance_mi, distanceUnit) : "—"}</Text><Text style={styles.statLbl}>Distance</Text></View>
@@ -611,6 +787,23 @@ import { Feather } from "@expo/vector-icons";
 
             <View style={styles.chipsContainer}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsContent}>
+                {/* Leading position deliberately. The sort options live three
+                    taps deep — sliders button, chip, Done — and a discovery
+                    feature nobody finds may as well not exist. This writes the
+                    same sortBy the modal does: one code path, two entry points,
+                    and the modal chip stays in sync because it reads the same
+                    state. */}
+                {LOCATION_SUPPORTED && (
+                  <Pressable
+                    onPress={() => setSortBy(nearbyActive ? "Top Rated" : NEAREST_SORT)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: nearbyActive }}
+                    style={[styles.chip, nearbyActive && styles.chipActiveGreen]}
+                  >
+                    <Feather name="navigation" size={11} color={nearbyActive ? "#fff" : Colors.text3} />
+                    <Text style={[styles.chipText, nearbyActive && styles.chipTextActive]}>Near me</Text>
+                  </Pressable>
+                )}
                 {DIFFICULTY_FILTERS.map(f => {
                   const active = diffFilter === f;
                   const ds = f !== "All" ? getDiffStyle(f) : null;
@@ -632,6 +825,20 @@ import { Feather } from "@expo/vector-icons";
               </ScrollView>
             </View>
 
+            {/* Above the list, never instead of it. Discover works fine without
+                location, so a missing permission costs the distance ordering
+                and nothing else — 225 trails stay on screen and readable. */}
+            {viewMode === "list" && nearbyActive && !nearbyReady ? (
+              <NearbyNotice
+                permission={location.permission}
+                loading={location.loading}
+                error={location.error}
+                canPrompt={location.canPrompt}
+                onRequest={location.request}
+                onRetry={location.refresh}
+              />
+            ) : null}
+
             {viewMode === "map" ? renderMapView() : (
               loading ? (
                 <View style={styles.center}><ActivityIndicator color={Colors.accent} size="large" /></View>
@@ -647,11 +854,22 @@ import { Feather } from "@expo/vector-icons";
                   onEndReached={loadMore}
                   onEndReachedThreshold={0.4}
                   ListHeaderComponent={
-                    <Text style={styles.sectionLabel}>
-                      {totalCount} trail{totalCount !== 1 ? "s" : ""}
-                      {regionFilter !== "All Regions" ? ` · ${regionFilter}` : ""}
-                      {activeCategories.length > 0 ? ` · ${activeCategories.slice(0, 2).join(", ")}${activeCategories.length > 2 ? "…" : ""}` : ""}
-                    </Text>
+                    <View>
+                      <Text style={styles.sectionLabel}>
+                        {totalCount} trail{totalCount !== 1 ? "s" : ""}
+                        {nearbyReady ? " · nearest first" : ""}
+                        {regionFilter !== "All Regions" ? ` · ${regionFilter}` : ""}
+                        {activeCategories.length > 0 ? ` · ${activeCategories.slice(0, 2).join(", ")}${activeCategories.length > 2 ? "…" : ""}` : ""}
+                      </Text>
+                      {/* Said out loud rather than swallowed. A distance ranking
+                          computed over an arbitrary subset of the catalogue is
+                          wrong in a way the list itself cannot show. */}
+                      {nearbyReady && nearbyTruncated ? (
+                        <Text style={styles.nearbyNotice}>
+                          Ranking the first {NEARBY_FETCH_LIMIT} matches only — narrow the filters for an exact order.
+                        </Text>
+                      ) : null}
+                    </View>
                   }
                   ListEmptyComponent={
                     loading ? null : (
@@ -805,7 +1023,13 @@ import { Feather } from "@expo/vector-icons";
     cardName: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text, flex: 1, marginRight: 8 },
     ratingRow: { flexDirection: "row", alignItems: "center", gap: 3 },
     ratingText: { fontSize: 13, color: Colors.amber2, fontFamily: "Inter_500Medium" },
-    cardLocation: { fontSize: 12, color: Colors.text3, fontFamily: "Inter_400Regular", marginBottom: 6 },
+    // flexShrink on the location so a long place name yields to the distance
+    // rather than pushing it off the card — the distance is the reason the row
+    // is where it is under this sort, so it is the part that must survive.
+    cardLocationRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 },
+    cardLocation: { fontSize: 12, color: Colors.text3, fontFamily: "Inter_400Regular", flexShrink: 1 },
+    cardAway: { fontSize: 12, color: Colors.accent, fontFamily: "Inter_600SemiBold", flexShrink: 0 },
+    nearbyNotice: { fontSize: 11, color: Colors.amber, fontFamily: "Inter_400Regular", paddingHorizontal: 20, paddingBottom: 10, lineHeight: 15 },
     cardDesc: { fontSize: 13, color: Colors.text2, fontFamily: "Inter_400Regular", lineHeight: 18, marginBottom: 10 },
     cardStats: { flexDirection: "row", gap: 20, marginBottom: 10 },
     stat: { gap: 2 },
