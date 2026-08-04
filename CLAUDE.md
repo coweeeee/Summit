@@ -208,9 +208,26 @@ Note `hike-detail.tsx` keeps its own copy of the hike rather than reading `Hikes
 
 Not built. Every `trails` row already has `lat`/`lng`, so sorting or filtering Discover by distance from the user's current position is real discovery value that does not exist today. Scope the effort and, specifically, what location-permission handling it needs.
 
-### Trail condition tags at log time
+### Trail condition tags at log time — scoped, blocked on three decisions
 
-Pulled out of the "Good to know" overhaul above as its own smaller, faster win. That item identifies structured condition tags (muddy, icy, closed section, bugs bad, …) as *the one real data gap*; capturing them at log time is useful on its own — a recent-conditions signal for other hikers — well before any derived-stats aggregation is built on top. Independent of the two decisions gating the larger feature.
+Pulled out of the "Good to know" overhaul above as its own smaller, faster win: capturing conditions at log time is useful with one hike in the database, whereas everything aggregate needs hundreds. **Scoped and verified against the live schema; not built.**
+
+**Storage: a `text[]` column on `hikes`, not a child table.** The deciding reason is one this project already hit — `dim_ratings` has SELECT/INSERT/UPDATE and **no DELETE**, which is exactly why ratings are not editable. A `hike_conditions` child table walks into the identical trap: de-selecting a tag is a DELETE and would fail silently. An array column makes removal an UPDATE, which `hikes` already has a working policy for. It also needs **no RLS changes** (`hikes` SELECT is already gated by `can_view_user_content`) and **no `select()` edits** — every read path already does `select('*')`. `trails.tags` is the precedent: `text[]` with a GIN index, because a tag is a valueless label, whereas `dim_ratings` is a table because each row carries a score.
+
+**Two collisions in the log form** — this cannot simply be bolted on:
+- `log.tsx:41` — a **"Trail Cond."** star dimension already ships (`DIMENSIONS[2]`), with live `dim_ratings` rows. A "Conditions" chip row beside a "Trail Cond." star row is incoherent.
+- `log.tsx:455` — the Notes placeholder is literally `"Conditions, tips, highlights..."`, so the form already solicits this as prose.
+
+**Include an affirmative "Good conditions" tag.** Without one, an empty array cannot distinguish "the trail was fine" from "this user ignored the selector" — which leaves any future aggregate with a numerator and no denominator. Cheap now, unrecoverable later, because you cannot retroactively decide what silence meant.
+
+**Three decisions that are the owner's, not the implementer's:**
+1. What happens to the "Trail Cond." star — rename to "Trail Quality" (recommended: the star is *how nice was the tread*, the tags are *what was in the way*), drop it, or keep both. Renaming touches existing `dim_ratings.name` values, which are free text.
+2. Whether the tag vocabulary is right, and whether "Good conditions" is in.
+3. Whether `created_at` rides along in the same migration. `hikes` has **no immutable timestamp** — `date` is the user-supplied hike date and is freely editable via the edit screen, so it cannot anchor a "last 90 days" window. Adding `created_at` after real rows exist backfills them all to one useless date.
+
+**Effort:** ~2–3h before the migration (vocabulary module + `node --test` unit tests, reviewable with no database access), ~3–4h after. The migration is DDL and needs handing to the owner's Supabase session.
+
+**Does not unblock the derived-stats half** — that is still gated on the minimum-sample-size decision and the aggregates-only privacy constraint recorded above.
 
 ### Basic moderation follow-through
 
