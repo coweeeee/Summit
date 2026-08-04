@@ -210,7 +210,11 @@ export default function TrailDetailScreen() {
 
         {/* Stats */}
         <View style={styles.statsGrid}>
-          <View style={styles.statBox}><Feather name="navigation" size={18} color={Colors.accent} /><Text style={styles.statVal}>{formatDistance(trail.distance_mi, distanceUnit)}</Text><Text style={styles.statLbl}>Distance</Text></View>
+          {/* "Length" here and on the Discover card, matching each other: a
+              trail has both a length and a distance from the viewer, and the
+              label has to say which. Hike screens keep "Distance", where it
+              means distance covered and nothing competes with it. */}
+          <View style={styles.statBox}><Feather name="navigation" size={18} color={Colors.accent} /><Text style={styles.statVal}>{formatDistance(trail.distance_mi, distanceUnit)}</Text><Text style={styles.statLbl}>Length</Text></View>
           <View style={[styles.statBox, styles.statBoxBorder]}><Feather name="trending-up" size={18} color={Colors.accent} /><Text style={styles.statVal}>{formatElevation(trail.elevation_ft, distanceUnit)}</Text><Text style={styles.statLbl}>Elevation</Text></View>
           <View style={styles.statBox}><Feather name="activity" size={18} color={ds?.color ?? Colors.text3} /><Text style={[styles.statVal, { color: ds?.color ?? Colors.text3 }]}>{trail.difficulty || "Unknown"}</Text><Text style={styles.statLbl}>Difficulty</Text></View>
         </View>
