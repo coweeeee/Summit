@@ -75,6 +75,7 @@ import { Feather } from "@expo/vector-icons";
     const [showFollowModal, setShowFollowModal] = useState<"followers" | "following" | null>(null);
     const [followUsers, setFollowUsers] = useState<FollowUser[]>([]);
     const [followModalLoading, setFollowModalLoading] = useState(false);
+    const [pendingCount, setPendingCount] = useState(0);
 
     const totalMiles = hikes.reduce((s, h) => s + h.distanceMi, 0);
     const totalElev  = hikes.reduce((s, h) => s + h.elevationFt, 0);
@@ -106,6 +107,16 @@ import { Feather } from "@expo/vector-icons";
       if (type === "followers") {
         const { data } = await supabase.from("follows").select("follower_id").eq("following_id", profile.id).eq("status", "accepted");
         userIds = (data || []).map((f: any) => f.follower_id);
+        // Pending requests are a different thing from followers and are counted
+        // separately — but the modal used to filter them out entirely and then
+        // say "No followers yet", which denies that anyone had asked. A private
+        // account with five waiting requests was told nobody was there.
+        const { count } = await supabase
+          .from("follows")
+          .select("*", { count: "exact", head: true })
+          .eq("following_id", profile.id)
+          .eq("status", "pending");
+        setPendingCount(count || 0);
       } else {
         const { data } = await supabase.from("follows").select("following_id").eq("follower_id", profile.id).eq("status", "accepted");
         userIds = (data || []).map((f: any) => f.following_id);
@@ -339,9 +350,25 @@ import { Feather } from "@expo/vector-icons";
             {followModalLoading ? (
               <View style={styles.center}><ActivityIndicator color={Colors.accent} /></View>
             ) : followUsers.length === 0 ? (
-              <View style={styles.center}>
-                <Text style={styles.emptyText}>{showFollowModal === "followers" ? "No followers yet" : "Not following anyone yet"}</Text>
-              </View>
+              showFollowModal === "followers" && pendingCount > 0 ? (
+                // Not "no followers": someone has asked and is waiting. Claiming
+                // nobody is there is the part that was actually wrong.
+                <View style={styles.center}>
+                  <Text style={styles.emptyText}>
+                    {pendingCount} pending request{pendingCount === 1 ? "" : "s"}
+                  </Text>
+                  <Pressable
+                    onPress={() => { setShowFollowModal(null); router.push("/notifications"); }}
+                    style={({ pressed }) => [styles.pendingBtn, { opacity: pressed ? 0.7 : 1 }]}
+                  >
+                    <Text style={styles.pendingBtnText}>Review requests</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={styles.center}>
+                  <Text style={styles.emptyText}>{showFollowModal === "followers" ? "No followers yet" : "Not following anyone yet"}</Text>
+                </View>
+              )
             ) : (
               <ScrollView>
                 {followUsers.map(u => (
@@ -427,6 +454,8 @@ import { Feather } from "@expo/vector-icons";
     followModalTitle: { fontFamily: "Inter_600SemiBold", fontSize: 18, color: Colors.text },
     center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60 },
     followUserRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: Colors.border },
+    pendingBtn: { marginTop: 14, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 12, backgroundColor: Colors.green2 },
+    pendingBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: "#fff" },
     followUserName: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.text },
   });
   

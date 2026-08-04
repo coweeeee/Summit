@@ -23,6 +23,7 @@ import {
   temperatureUnitLabel,
   windSpeedUnitLabel,
 } from "@/lib/units";
+import { getDiffStyle } from "@/lib/format";
 import { fetchRatingStats, formatRatingDisplay, TrailRatingStats } from "@/lib/ratings";
 import TrailMap from "@/components/TrailMap";
 import { showActionSheet } from "@/lib/actionSheet";
@@ -43,15 +44,6 @@ type Weather = {
   windSpeed: number; humidity: number; icon: string;
 };
 
-function getDiffStyle(diff: string) {
-  switch (diff?.toLowerCase()) {
-    case "easy":   return { bg: "rgba(109,184,122,0.2)", color: Colors.green,  border: "rgba(109,184,122,0.5)" };
-    case "moderate": return { bg: "rgba(212,148,58,0.2)", color: Colors.amber,  border: "rgba(212,148,58,0.5)" };
-    case "hard":   return { bg: "rgba(196,96,96,0.2)",   color: Colors.red,    border: "rgba(196,96,96,0.5)" };
-    case "expert": return { bg: "rgba(160,80,200,0.2)",  color: "#a855d4",     border: "rgba(160,80,200,0.5)" };
-    default:       return { bg: "rgba(109,184,122,0.2)", color: Colors.green,  border: "rgba(109,184,122,0.5)" };
-  }
-}
 
 function getWeatherIcon(wmo: number): string {
   if (wmo === 0) return "☀️";
@@ -195,9 +187,13 @@ export default function TrailDetailScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         <View style={styles.hero}>
-          <View style={[styles.diffBadgeLarge, { backgroundColor: ds.bg, borderColor: ds.border }]}>
-            <Text style={[styles.diffTextLarge, { color: ds.color }]}>{trail.difficulty}</Text>
-          </View>
+          {/* Omitted rather than rendered neutral: an unlabelled difficulty pill
+              says less than no pill, and this used to claim "easy". */}
+          {ds && (
+            <View style={[styles.diffBadgeLarge, { backgroundColor: ds.bg, borderColor: ds.border }]}>
+              <Text style={[styles.diffTextLarge, { color: ds.color }]}>{trail.difficulty}</Text>
+            </View>
+          )}
           <Text style={styles.trailName}>{trail.name}</Text>
           <View style={styles.locationRow}>
             <Feather name="map-pin" size={14} color={Colors.text3} />
@@ -216,7 +212,7 @@ export default function TrailDetailScreen() {
         <View style={styles.statsGrid}>
           <View style={styles.statBox}><Feather name="navigation" size={18} color={Colors.accent} /><Text style={styles.statVal}>{formatDistance(trail.distance_mi, distanceUnit)}</Text><Text style={styles.statLbl}>Distance</Text></View>
           <View style={[styles.statBox, styles.statBoxBorder]}><Feather name="trending-up" size={18} color={Colors.accent} /><Text style={styles.statVal}>{formatElevation(trail.elevation_ft, distanceUnit)}</Text><Text style={styles.statLbl}>Elevation</Text></View>
-          <View style={styles.statBox}><Feather name="activity" size={18} color={ds.color} /><Text style={[styles.statVal, { color: ds.color }]}>{trail.difficulty}</Text><Text style={styles.statLbl}>Difficulty</Text></View>
+          <View style={styles.statBox}><Feather name="activity" size={18} color={ds?.color ?? Colors.text3} /><Text style={[styles.statVal, { color: ds?.color ?? Colors.text3 }]}>{trail.difficulty || "Unknown"}</Text><Text style={styles.statLbl}>Difficulty</Text></View>
         </View>
 
         {/* Weather */}
