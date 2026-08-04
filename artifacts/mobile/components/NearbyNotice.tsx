@@ -75,10 +75,21 @@ export default function NearbyNotice({ permission, loading, error, canPrompt, on
         />
       );
 
-    // Discover hides the Nearest sort entirely where location cannot exist, so
-    // reaching these two means the sort was set some other way. Say nothing
-    // rather than explain a control the user cannot see.
+    // Discover hides the Nearest sort where location cannot exist, so reaching
+    // this means the sort was set some other way. Say nothing rather than
+    // explain a control the user cannot see.
     case "unsupported":
+      return null;
+
+    // Granted but no fix yet, and nothing failed: the brief gap between the
+    // permission landing and the first position. Silence is right — a banner
+    // here would flash on every successful grant.
+    //
+    // A failure with the permission intact does NOT land here: it sets `error`
+    // and is caught by the branch above. That routing is load-bearing, and it
+    // is exactly what was broken — the timeout used to arrive as a bare
+    // "granted" with its message discarded, so this `return null` swallowed the
+    // app's only signal that the sort had silently stopped working.
     case "granted":
       return null;
   }
