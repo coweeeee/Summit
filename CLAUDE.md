@@ -233,6 +233,10 @@ Pulled out of the "Good to know" overhaul above as its own smaller, faster win: 
 
 `reports` and `trail_requests` both alert to Discord now, but there is still no way to **act** on a report — suspend a user, remove content — short of the Supabase dashboard by hand. Fine at the current user count; worth a real plan before sharing brings more people in. Propose options, as with the original moderation-triage discussion.
 
+**Reports are destructible, and the fix is written but not applied.** All four FKs on `reports` are `ON DELETE CASCADE`, and every one of them is reachable: the reported user deleting their own hike (the ordinary button on `hike-detail.tsx:192`), the reported user deleting their account (`delete-account` → `auth.admin.deleteUser` cascades the whole graph), the *reporter* deleting theirs, or a third party deleting a hike and taking every comment report on it. `supabase/moderation-integrity.sql` holds the migration — snapshot columns filled by a `BEFORE INSERT` trigger, the three target FKs plus `reporter_id` recreated as `SET NULL`. **It is DDL and has not been run**; hand it to the owner's Supabase session. Note the non-obvious part: `reports_target_present` has to be re-pointed at the snapshot columns in the same migration, or `SET NULL` turns the bug into a CHECK violation that blocks users from deleting their own hikes.
+
+Do *not* read the missing UPDATE policy as part of that bug. `status` cannot be moved through the API, but `service_role` and `postgres` both carry `rolbypassrls`, so dashboard triage — which is where `report-alert` says triage happens — already works. An UPDATE policy only becomes necessary when triage moves in-app, and it needs a moderator concept first to have anything to gate on.
+
 ### Elevation profile chart on hike detail
 
 Not built. A simple line chart over elevation data already being logged. Scoping should start with what charting library is available — check the dependency tree before adding one, since this would be the app's first charting need.
