@@ -54,8 +54,14 @@ import { Feather } from "@expo/vector-icons";
 
     // Ticket for whole-list fetches. Every call that replaces `hikes` takes the
     // next number, and commits its result only if it still holds the newest —
-    // see replaceFeed.
+    // see replaceFeed. Every fetch that writes state re-checks it after each
+    // await, not just at the point of commit.
     const loadSeqRef = useRef(0);
+    // True while a full reload is in flight, so pagination can decline to fetch
+    // a page that would be appended to a list about to be thrown away. A ref
+    // rather than the `loading`/`refreshing` state because onEndReached reads it
+    // from a closure that would see a state change a frame late.
+    const reloadingRef = useRef(false);
 
     const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
     const [toast, setToast] = useState("");
@@ -65,7 +71,16 @@ import { Feather } from "@expo/vector-icons";
       setTimeout(() => setToast(""), 3500);
     };
 
-    const fetchPage = async (offset: number): Promise<FeedHike[]> => {
+    /**
+     * Returns null when a newer request superseded this one mid-flight, in
+     * which case the caller must commit nothing at all.
+     *
+     * The guards sit inside rather than only at the call site because this
+     * function writes state of its own — `hasMore` and `likeCounts` — before it
+     * ever returns. Checking only the returned page would let a stale response
+     * still move the pagination cursor for a list it knows nothing about.
+     */
+    const fetchPage = async (offset: number, seq: number): Promise<FeedHike[] | null> => {
       // The feed is other people's hikes. Your own are on your profile, and
       // seeing them here just crowded out the social content. RLS already
       // limits this to hikes you're allowed to see; this narrows it further.
@@ -79,6 +94,9 @@ import { Feather } from "@expo/vector-icons";
         // so without this the same row can appear on consecutive pages.
         .order("id", { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1);
+      // Bail before touching hasMore: a superseded request knows nothing about
+      // the list the newer one is building.
+      if (seq !== loadSeqRef.current) return null;
       if (error || !hikesData || hikesData.length === 0) { setHasMore(false); return []; }
       const userIds = [...new Set(hikesData.map((h: any) => h.user_id))];
       const hikeIds = hikesData.map((h: any) => h.id);
@@ -88,6 +106,9 @@ import { Feather } from "@expo/vector-icons";
         supabase.from("comments").select("hike_id").in("hike_id", hikeIds),
         supabase.from("likes").select("hike_id").in("hike_id", hikeIds),
       ]);
+      // Re-checked: the secondary queries are a second suspension point, and
+      // setLikeCounts below is another write that must not outlive its request.
+      if (seq !== loadSeqRef.current) return null;
       // The whole row, not just a formatted name — the card renders an avatar
       // from it too, and displayName() already handles a missing entry.
       const profileMap: Record<string, AvatarProfile> = {};
@@ -109,15 +130,21 @@ import { Feather } from "@expo/vector-icons";
       }));
     };
 
-    const fetchLikes = async () => {
+    // These two take the request id for the same reason fetchPage does: they
+    // commit state directly rather than returning it, so a response that lands
+    // after a newer reload started would otherwise overwrite what that reload
+    // just wrote.
+    const fetchLikes = async (seq: number) => {
       if (!session) return;
       const { data } = await supabase.from("likes").select("hike_id").eq("user_id", session.user.id);
+      if (seq !== loadSeqRef.current) return;
       if (data) setLikedIds(new Set(data.map((l: any) => l.hike_id)));
     };
 
-    const fetchTrailBookmarks = async () => {
+    const fetchTrailBookmarks = async (seq: number) => {
       if (!session) return;
       const { data } = await supabase.from("want_to_hike").select("trail_id").eq("user_id", session.user.id);
+      if (seq !== loadSeqRef.current) return;
       if (data) setTrailBookmarkIds(new Set(data.map((d: any) => d.trail_id)));
     };
 
@@ -138,12 +165,15 @@ import { Feather } from "@expo/vector-icons";
      */
     const replaceFeed = async (seq: number) => {
       try {
-        const [page] = await Promise.all([fetchPage(0), fetchLikes(), fetchTrailBookmarks()]);
-        if (seq !== loadSeqRef.current) return;
+        const [page] = await Promise.all([fetchPage(0, seq), fetchLikes(seq), fetchTrailBookmarks(seq)]);
+        if (page === null || seq !== loadSeqRef.current) return;
         setHikes(page);
         offsetRef.current = page.length;
       } finally {
         if (seq === loadSeqRef.current) {
+          // Cleared here rather than only on success, so a reload that errors
+          // cannot wedge pagination off permanently.
+          reloadingRef.current = false;
           setLoading(false);
           setRefreshing(false);
         }
@@ -152,13 +182,22 @@ import { Feather } from "@expo/vector-icons";
 
     const load = async () => {
       const seq = ++loadSeqRef.current;
+      reloadingRef.current = true;
       setLoading(true);
       offsetRef.current = 0;
+      // Reset alongside the cursor, exactly as onRefresh does. Without it a
+      // reload after you had already paged to the end inherited hasMore=false
+      // and pagination stayed switched off against a freshly rebuilt list.
+      setHasMore(true);
       await replaceFeed(seq);
     };
 
     const loadMore = async () => {
-      if (loadingMore || !hasMore) return;
+      // A reload in flight is about to replace the list wholesale, so this page
+      // could only ever be appended to a list already on its way out. Checking
+      // the ref rather than `loading`/`refreshing` because onEndReached fires
+      // from a closure that sees a state change a frame late.
+      if (loadingMore || !hasMore || reloadingRef.current) return;
       // Reads the ticket without taking one: appending is not a reset. If the
       // list is replaced while this page is in flight, its rows belong to a
       // list that no longer exists and appending them would interleave two
@@ -166,8 +205,8 @@ import { Feather } from "@expo/vector-icons";
       const seq = loadSeqRef.current;
       setLoadingMore(true);
       try {
-        const page = await fetchPage(offsetRef.current);
-        if (seq !== loadSeqRef.current) return;
+        const page = await fetchPage(offsetRef.current, seq);
+        if (page === null || seq !== loadSeqRef.current) return;
         if (page.length > 0) {
           // Same guard as Discover: a hike logged between page fetches shifts the
           // offsets and can re-serve a row the list already holds.
@@ -184,6 +223,7 @@ import { Feather } from "@expo/vector-icons";
 
     const onRefresh = useCallback(async () => {
       const seq = ++loadSeqRef.current;
+      reloadingRef.current = true;
       setRefreshing(true);
       offsetRef.current = 0;
       setHasMore(true);
