@@ -633,7 +633,12 @@ import { Feather } from "@expo/vector-icons";
             </View>
             {trail.description ? <Text style={styles.cardDesc} numberOfLines={2}>{trail.description}</Text> : null}
             <View style={styles.cardStats}>
-              <View style={styles.stat}><Text style={styles.statVal}>{trail.distance_mi != null ? formatDistance(trail.distance_mi, distanceUnit) : "—"}</Text><Text style={styles.statLbl}>Distance</Text></View>
+              {/* "Length", not "Distance". This card can now show two
+                  miles figures that mean different things — how long the trail
+                  is, and how far away it is — and one of them has to say which.
+                  Hike cards keep "Distance", where it means distance covered
+                  and nothing competes with it. */}
+              <View style={styles.stat}><Text style={styles.statVal}>{trail.distance_mi != null ? formatDistance(trail.distance_mi, distanceUnit) : "—"}</Text><Text style={styles.statLbl}>Length</Text></View>
               <View style={styles.stat}><Text style={styles.statVal}>{trail.elevation_ft != null ? formatElevation(trail.elevation_ft, distanceUnit) : "—"}</Text><Text style={styles.statLbl}>Elevation</Text></View>
             </View>
             {trail.tags && trail.tags.length > 0 && (
