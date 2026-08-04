@@ -1,12 +1,21 @@
 -- Reports must outlive the things they are about.
 --
--- NOT YET APPLIED. This is DDL and belongs in the owner's Supabase session,
--- like the trigger definitions in webhooks.sql. It is recorded here because
--- work applied through the dashboard otherwise leaves no trace in the repo.
+-- APPLIED 2026-08-04 to the `summit` project. Verified against the live
+-- catalog afterwards: all four foreign keys read ON DELETE SET NULL,
+-- reports_target_present is re-pointed at the snapshot columns, target_kind
+-- is NOT NULL, reporter_id is nullable, and reports_capture_snapshot_trg is
+-- present, enabled and SECURITY DEFINER. The deployed copy of the trigger
+-- function has its comments stripped; the logic is statement-for-statement
+-- identical to what is below.
 --
--- ── The problem ────────────────────────────────────────────────────────────
+-- DO NOT RE-RUN. This is not idempotent — the constraint drops in sections 4
+-- and 5 fail on a second pass. It is recorded here because DDL applied
+-- through the dashboard otherwise leaves no trace in the repo, which is the
+-- same reason webhooks.sql exists.
 --
--- All four foreign keys on `reports` are ON DELETE CASCADE, and the tables
+-- ── The problem this fixed ─────────────────────────────────────────────────
+--
+-- All four foreign keys on `reports` were ON DELETE CASCADE, and the tables
 -- they point at cascade from `auth.users` in turn:
 --
 --     auth.users ─┬─> profiles ─┬─> reports.reported_user_id  (CASCADE)
@@ -15,7 +24,7 @@
 --                 │                        └─> comments ─> reports.comment_id
 --                 └─> comments ─> reports.comment_id          (CASCADE)
 --
--- So a report is destroyed by any of:
+-- So a report was destroyed by any of:
 --
 --   1. The reported user deleting their own hike. Settings has no part in it —
 --      it is the ordinary delete button on hike-detail.tsx:192.
@@ -28,10 +37,10 @@
 --      it, and therefore every report filed about those comments, even though
 --      the reports concern other people's words.
 --
--- In each case the report row is gone with no tombstone. Nobody is notified,
--- nothing is logged, and the Slack/Discord alert that report-alert already
--- sent is left as the only surviving evidence — an unstructured chat message
--- naming a uuid that no longer resolves to anything.
+-- In each case the report row went with no tombstone. Nobody was notified,
+-- nothing was logged, and the Slack/Discord alert that report-alert had
+-- already sent was left as the only surviving evidence — an unstructured chat
+-- message naming a uuid that no longer resolved to anything.
 --
 -- ── The fix ────────────────────────────────────────────────────────────────
 --
