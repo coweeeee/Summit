@@ -33,33 +33,15 @@ import {
   formatElevation,
 } from "@/lib/units";
 import { formatDateTime, getDiffColor } from "@/lib/format";
+import { DIFFICULTIES, YEAR_OPTIONS, filterDecimal, filterInteger, withYear } from "@/lib/hikeForm";
 import { uploadImage } from "@/lib/upload";
 
-const DIFFICULTIES = ["Easy", "Moderate", "Hard", "Expert"];
 // Ten years back is well beyond anything anyone is retro-logging, and the
 // picker's maximumDate still prevents choosing the future.
-const YEAR_OPTIONS = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
-
-// Clamps the day first, so 29 Feb into a non-leap year lands on 28 Feb rather
-// than silently rolling over into March.
-function withYear(date: Date, year: number): Date {
-  const next = new Date(date);
-  const daysInTargetMonth = new Date(year, next.getMonth() + 1, 0).getDate();
-  next.setDate(Math.min(next.getDate(), daysInTargetMonth));
-  next.setFullYear(year);
-  return next > new Date() ? new Date() : next;
-}
-
 const DIMENSIONS = ["Scenery", "Views", "Trail Cond.", "Crowds", "Accessibility"];
 
 type Trail = { id: string; name: string; location: string; distance_mi: number; elevation_ft: number; difficulty: string; rating: number; };
 
-function filterDecimal(val: string): string {
-  const cleaned = val.replace(/[^0-9.]/g, "");
-  const parts = cleaned.split(".");
-  return parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : cleaned;
-}
-function filterInteger(val: string): string { return val.replace(/[^0-9]/g, ""); }
 
 
 function StarRating({ dim, value, onChange }: { dim: string; value: number; onChange: (v: number) => void }) {

@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
-  import { useLocalSearchParams, useRouter } from "expo-router";
-  import React, { useEffect, useRef, useState } from "react";
+  import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+  import React, { useCallback, useEffect, useRef, useState } from "react";
   import {
     ActivityIndicator,
     Alert,
@@ -61,6 +61,21 @@ import { Feather } from "@expo/vector-icons";
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3500); };
 
+    // Keyed on a counter as well as the id, so returning from the edit modal
+    // refetches. This screen owns its own copy of the hike rather than reading
+    // HikesContext, so without this an edit saves correctly and then the screen
+    // you land back on still shows the old numbers.
+    const [reloadKey, setReloadKey] = useState(0);
+    // Skipped on the first focus: the effect below already runs on mount, and
+    // bumping here too would fetch everything twice on every open.
+    const hasFocusedRef = useRef(false);
+    useFocusEffect(
+      useCallback(() => {
+        if (!hasFocusedRef.current) { hasFocusedRef.current = true; return; }
+        setReloadKey(k => k + 1);
+      }, []),
+    );
+
     useEffect(() => {
       const load = async () => {
         const [hikeRes, photosRes, commentsRes, likesRes] = await Promise.all([
@@ -115,7 +130,7 @@ import { Feather } from "@expo/vector-icons";
         setLoading(false);
       };
       load();
-    }, [id]);
+    }, [id, reloadKey]);
 
     const toggleLike = async () => {
       if (!session) return;
@@ -226,7 +241,10 @@ import { Feather } from "@expo/vector-icons";
                       }]
                     : []),
                   ...(isOwnHike
-                    ? [{ label: "Delete hike", destructive: true, onPress: confirmDeleteHike }]
+                    ? [
+                        { label: "Edit hike", onPress: () => router.push({ pathname: "/edit-hike", params: { id } }) },
+                        { label: "Delete hike", destructive: true, onPress: confirmDeleteHike },
+                      ]
                     : [{
                         label: "Report post",
                         destructive: true,
