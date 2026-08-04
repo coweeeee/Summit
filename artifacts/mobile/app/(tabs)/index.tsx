@@ -98,7 +98,11 @@ import { Feather } from "@expo/vector-icons";
       // Bail before touching hasMore: a superseded request knows nothing about
       // the list the newer one is building.
       if (seq !== loadSeqRef.current) return null;
-      if (error || !hikesData || hikesData.length === 0) { setHasMore(false); return []; }
+      // An error is not the end of the list. Collapsing the two meant a failed
+      // page looked exactly like exhaustion, so pagination died silently
+      // mid-scroll and never recovered until a manual refresh.
+      if (error) { setHasMore(true); return []; }
+      if (!hikesData || hikesData.length === 0) { setHasMore(false); return []; }
       const userIds = [...new Set(hikesData.map((h: any) => h.user_id))];
       const hikeIds = hikesData.map((h: any) => h.id);
       const [profilesRes, photosRes, commentsRes, likesRes] = await Promise.all([

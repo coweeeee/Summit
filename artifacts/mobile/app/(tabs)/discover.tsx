@@ -24,7 +24,7 @@ import { Feather } from "@expo/vector-icons";
   import { formatDistance, formatElevation } from "@/lib/units";
   import { formatRatingDisplay } from "@/lib/ratings";
   import { sendPushNotification } from "@/lib/notifications";
-  import { displayName } from "@/lib/format";
+  import { displayName, getDiffStyle } from "@/lib/format";
   import Avatar from "@/components/Avatar";
   import TrailMap from "@/components/TrailMap";
   import EmptyState from "@/components/EmptyState";
@@ -69,15 +69,7 @@ import { Feather } from "@expo/vector-icons";
     return raw.replace(/[,.()<>{}[\]"'%_*\\:]/g, " ").replace(/\s+/g, " ").trim();
   }
 
-  function getDiffStyle(diff: string) {
-    switch (diff?.toLowerCase()) {
-      case "easy":    return { bg: "rgba(109,184,122,0.2)", color: "#6db87a", border: "#6db87a" };
-      case "moderate":return { bg: "rgba(212,148,58,0.2)",  color: "#d4943a", border: "#d4943a" };
-      case "hard":    return { bg: "rgba(196,96,96,0.2)",   color: "#c46060", border: "#c46060" };
-      case "expert":  return { bg: "rgba(160,80,200,0.2)",  color: "#a855d4", border: "#a855d4" };
-      default:        return { bg: "rgba(109,184,122,0.2)", color: "#6db87a", border: "#6db87a" };
-    }
-  }
+
 
   function PeopleTab() {
     const { session, profile } = useAuth();
@@ -313,7 +305,12 @@ import { Feather } from "@expo/vector-icons";
     };
 
     const fetchPage = async (offset: number): Promise<Trail[]> => {
-      const { data, count } = await buildListQuery(offset);
+      // `error` was not destructured at all, so a failed request arrived as
+      // `data: null` and was read as "no more trails" — pagination stopped dead
+      // and stayed stopped, with nothing said. An error means we do not know
+      // whether more exist, so leave hasMore alone and let a retry find out.
+      const { data, count, error } = await buildListQuery(offset);
+      if (error) { console.warn("discover: trail page failed", error.message); return []; }
       if (count !== null) setTotalCount(count);
       if (!data || data.length === 0) { setHasMore(false); return []; }
       setHasMore(data.length === PAGE_SIZE);
@@ -425,11 +422,13 @@ import { Feather } from "@expo/vector-icons";
           style={({ pressed }) => [styles.card, { opacity: pressed ? 0.92 : 1 }]}
           onPress={() => router.push({ pathname: "/trail-detail", params: { id: trail.id } })}
         >
-          <View style={[styles.diffBar, { backgroundColor: ds.color + "18" }]}>
-            <View style={[styles.diffBadge, { backgroundColor: ds.bg, borderColor: ds.color + "80" }]}>
-              <View style={[styles.diffDot, { backgroundColor: ds.color }]} />
-              <Text style={[styles.diffLabel, { color: ds.color }]}>{trail.difficulty}</Text>
-            </View>
+          <View style={[styles.diffBar, ds && { backgroundColor: ds.color + "18" }]}>
+            {ds && (
+              <View style={[styles.diffBadge, { backgroundColor: ds.bg, borderColor: ds.color + "80" }]}>
+                <View style={[styles.diffDot, { backgroundColor: ds.color }]} />
+                <Text style={[styles.diffLabel, { color: ds.color }]}>{trail.difficulty}</Text>
+              </View>
+            )}
             <View style={styles.cardActions}>
               {trail.lat != null && trail.lng != null && (
                 <Pressable
@@ -522,7 +521,9 @@ import { Feather } from "@expo/vector-icons";
               <Marker
                 key={trail.id}
                 coordinate={{ latitude: trail.lat, longitude: trail.lng }}
-                pinColor={ds.color}
+                // Neutral rather than the easy palette: a pin has to be some
+                // colour, and green would assert a grade the row does not have.
+                pinColor={ds?.color ?? Colors.text3}
               >
                 <Callout onPress={() => router.push({ pathname: "/trail-detail", params: { id: trail.id } })}>
                   <View style={styles.callout}>

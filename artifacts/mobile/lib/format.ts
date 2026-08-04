@@ -71,6 +71,29 @@ export function getDiffColor(diff: string | null | undefined): string {
   }
 }
 
+/**
+ * Badge styling for a difficulty — background, text and border.
+ *
+ * Lives here beside getDiffColor because two private copies of this existed
+ * (trail-detail.tsx and discover.tsx) and both had drifted: their `default:`
+ * returned the *easy* palette, so a trail with a missing or unrecognised
+ * difficulty rendered as an easy trail. On the one field that is a safety
+ * signal, guessing "easy" is the wrong way to be wrong. The default is now
+ * neutral, matching getDiffColor.
+ *
+ * Returns null when there is no difficulty to show, so callers can omit the
+ * badge rather than render an empty pill.
+ */
+export function getDiffStyle(diff: string | null | undefined): { bg: string; color: string; border: string } | null {
+  switch (diff?.toLowerCase()) {
+    case "easy":     return { bg: "rgba(109,184,122,0.2)", color: Colors.green, border: "rgba(109,184,122,0.5)" };
+    case "moderate": return { bg: "rgba(212,148,58,0.2)",  color: Colors.amber, border: "rgba(212,148,58,0.5)" };
+    case "hard":     return { bg: "rgba(196,96,96,0.2)",   color: Colors.red,   border: "rgba(196,96,96,0.5)" };
+    case "expert":   return { bg: "rgba(160,80,200,0.2)",  color: "#a855d4",    border: "rgba(160,80,200,0.5)" };
+    default:         return null;
+  }
+}
+
 export function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
