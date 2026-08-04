@@ -105,6 +105,7 @@ Phase 2 (Universal Links / App Links, so links open the app directly) is **block
 - `lib/actionSheet.ts` — the "..." overflow menu. `ActionSheetIOS` on iOS, `Alert` on Android. Every card, profile, comment and hike detail uses it; there is no flag icon anywhere any more.
 - `lib/trailTips.ts` — the "Good to know" tips, derived from elevation-per-mile, distance, tags and live weather. These were three identical hardcoded strings on all 225 trails. **Derive, don't generate:** they are safety claims about water, permits and exposure, and invented specifics are dangerous — every line traces to a database field.
 - `lib/share.ts` — share sheet and link building.
+- `components/EmptyState.tsx` — every "there is nothing here" block. Icon, title, optional message, optional action. **Never render it while data is still loading** — the callers gate on their own loading flag, since the component cannot know. Several screens used to assert "No hikes yet" on the first frame of every cold start, and a call-to-action on top of that lie is worse than the silence it replaces. The action is optional on purpose: a spinner never wants a button, and some zero states are good news (nobody should be nudged toward blocking someone).
 - `components/ReportModal.tsx`, `components/TrailMap.tsx` — shared UI; the report sheet was previously copy-pasted across screens.
 
 ## Offline behaviour

@@ -17,6 +17,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { formatDistance, formatElevation } from "@/lib/units";
 import { displayName } from "@/lib/format";
+import EmptyState from "@/components/EmptyState";
 import Avatar from "@/components/Avatar";
 
 type LeaderEntry = {
@@ -184,11 +185,13 @@ export default function LeaderboardScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchLeaders(); }} tintColor={Colors.accent} />}
         >
           {leaders.length === 0 ? (
-            <View style={styles.center}>
-              <Feather name="award" size={40} color={Colors.text3} />
-              <Text style={styles.emptyText}>No data yet</Text>
-              <Text style={styles.emptySubtext}>Log some hikes to appear here!</Text>
-            </View>
+            <EmptyState
+              icon="award"
+              title={timePeriod === "week" ? "No hikes logged this week" : "No one on the board yet"}
+              message={timePeriod === "week" ? "Log a hike to appear here." : "Log a hike to be the first."}
+              actionLabel="Log a Hike"
+              onAction={() => router.push("/(tabs)/log")}
+            />
           ) : leaders.map((entry) => {
             const isMe = entry.id === session?.user.id;
             return (

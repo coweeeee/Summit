@@ -27,6 +27,7 @@ import { Feather } from "@expo/vector-icons";
   import { displayName } from "@/lib/format";
   import Avatar from "@/components/Avatar";
   import TrailMap from "@/components/TrailMap";
+  import EmptyState from "@/components/EmptyState";
 
   const PAGE_SIZE = 20;
   // The Features list is every distinct tag in the catalogue -- 116 of them,
@@ -84,7 +85,9 @@ import { Feather } from "@expo/vector-icons";
     const [search, setSearch] = useState("");
     const [users, setUsers] = useState<UserProfile[]>([]);
     const [followStatus, setFollowStatus] = useState<Record<string, FollowState>>({});
-    const [loading, setLoading] = useState(false);
+    // True until the first fetch resolves — otherwise the first frame renders
+    // "No users found" before anyone has been looked for.
+    const [loading, setLoading] = useState(true);
 
     const fetchUsers = async (query: string) => {
       setLoading(true);
@@ -230,7 +233,8 @@ import { Feather } from "@expo/vector-icons";
 
     const [trails, setTrails] = useState<Trail[]>([]);
     const [mapTrails, setMapTrails] = useState<Trail[]>([]);
-    const [loading, setLoading] = useState(false);
+    // Same reason as PeopleTab: the empty state must not precede the first fetch.
+    const [loading, setLoading] = useState(true);
     const [mapLoading, setMapLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -634,13 +638,30 @@ import { Feather } from "@expo/vector-icons";
                     </Text>
                   }
                   ListEmptyComponent={
-                    <View style={styles.center}>
-                      <Feather name="search" size={36} color={Colors.text3} />
-                      <Text style={styles.emptyText}>No trails found</Text>
-                      <Pressable onPress={clearFilters} style={styles.clearBtn}>
-                        <Text style={styles.clearBtnText}>Clear filters</Text>
-                      </Pressable>
-                    </View>
+                    loading ? null : (
+                      // The button has to be able to undo whatever actually
+                      // emptied the list. `clearFilters` never touched `search`,
+                      // so when the search box was the cause — the common case —
+                      // tapping it changed nothing and the list stayed empty.
+                      <EmptyState
+                        icon="search"
+                        iconSize={36}
+                        title="No trails found"
+                        message={
+                          search.trim()
+                            ? `Nothing matches "${search.trim()}"${activeFilterCount > 0 ? " with these filters" : ""}.`
+                            : "No trails match these filters."
+                        }
+                        actionLabel={
+                          search.trim() && activeFilterCount > 0
+                            ? "Clear search & filters"
+                            : search.trim()
+                            ? "Clear search"
+                            : "Clear filters"
+                        }
+                        onAction={() => { setSearch(""); clearFilters(); }}
+                      />
+                    )
                   }
                   ListFooterComponent={loadingMore ? <View style={styles.loadingMore}><ActivityIndicator color={Colors.accent} size="small" /></View> : null}
                 />

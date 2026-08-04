@@ -26,7 +26,12 @@ export default function BlockedUsersScreen() {
   const router = useRouter();
 
   const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
-  const [blockedLoading, setBlockedLoading] = useState(false);
+  // Starts true. It was false, and fetchBlockedUsers early-returns on a null
+  // profile *before* setting it, so the screen asserted "No blocked users"
+  // before it had looked — a flash of wrong information in the same slot the
+  // real answer lands in. profile always arrives for a signed-in user, and this
+  // screen is only reachable signed in.
+  const [blockedLoading, setBlockedLoading] = useState(true);
 
   const fetchBlockedUsers = async () => {
     if (!profile) return;

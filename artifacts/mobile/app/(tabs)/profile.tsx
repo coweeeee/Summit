@@ -21,6 +21,7 @@ import { Feather } from "@expo/vector-icons";
   import { BADGE_DEFINITIONS, badgeProgress, isEarlyBirdStart } from "@/lib/badges";
   import { displayName, formatShortDate, getDiffColor } from "@/lib/format";
   import Avatar from "@/components/Avatar";
+  import EmptyState from "@/components/EmptyState";
   import HikeRowIcon from "@/components/HikeRowIcon";
   import {
     distanceFromMiles,
@@ -211,11 +212,22 @@ import { Feather } from "@expo/vector-icons";
           {/* Hikes tab */}
           {activeTab === "hikes" && (
             hikes.length === 0 ? (
-              <View style={styles.empty}>
-                <Feather name="map" size={36} color={Colors.text3} />
-                <Text style={styles.emptyText}>No hikes yet</Text>
-                <Text style={styles.emptySubtext}>Log your first hike to get started</Text>
-              </View>
+              // Gated on hikesLoading. This was wired only to the RefreshControl,
+              // so a cold start asserted "No hikes yet" to someone who has hikes
+              // — and a Log a Hike button on that lie would be worse than the
+              // silence it replaces.
+              hikesLoading ? (
+                <View style={styles.empty}><ActivityIndicator color={Colors.accent} /></View>
+              ) : (
+                <EmptyState
+                  icon="map"
+                  iconSize={36}
+                  title="No hikes yet"
+                  message="Log your first hike to get started."
+                  actionLabel="Log a Hike"
+                  onAction={() => router.push("/(tabs)/log")}
+                />
+              )
             ) : (
               hikes.map(hike => (
                 <Pressable

@@ -21,6 +21,7 @@ import { Feather } from "@expo/vector-icons";
   import { formatDistance, formatElevation } from "@/lib/units";
   import { displayName, getDiffColor, timeAgo } from "@/lib/format";
   import Avatar, { type AvatarProfile } from "@/components/Avatar";
+  import EmptyState from "@/components/EmptyState";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
   import { showActionSheet } from "@/lib/actionSheet";
   import { shareEntity, sharingAvailable } from "@/lib/share";
@@ -442,11 +443,17 @@ import { Feather } from "@expo/vector-icons";
               </Text>
             }
             ListEmptyComponent={
-              <View style={styles.empty}>
-                <Feather name="map" size={40} color={Colors.text3} />
-                <Text style={styles.emptyText}>No hikes yet</Text>
-                <Text style={styles.emptySubtext}>Be the first to log a hike!</Text>
-              </View>
+              // Gated on `loading`: this list starts empty on every cold start,
+              // so without the guard the first frame asserts there are no hikes.
+              loading ? null : (
+                <EmptyState
+                  icon="map"
+                  title="No hikes yet"
+                  message="Be the first to log one."
+                  actionLabel="Log a Hike"
+                  onAction={() => router.push("/(tabs)/log")}
+                />
+              )
             }
             ListFooterComponent={loadingMore ? <View style={styles.loadingMore}><ActivityIndicator color={Colors.accent} size="small" /></View> : null}
           />
