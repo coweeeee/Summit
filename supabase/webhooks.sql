@@ -33,20 +33,26 @@
 --     '5000'
 --   );
 
--- Not yet applied. Run this (or create the equivalent Database Webhook in the
--- dashboard: Database -> Webhooks -> new, table public.trail_requests, event
--- INSERT, type HTTP Request, POST to the URL below, with the Authorization
--- header set).
-create trigger "trail-request-alert"
-  after insert on public.trail_requests
-  for each row
-  execute function supabase_functions.http_request(
-    'https://sigupaldsyuaomgllyvw.supabase.co/functions/v1/report-alert',
-    'POST',
-    '{"Content-type":"application/json","Authorization":"Bearer <ALERT_SECRET>"}',
-    '{}',
-    '5000'
-  );
+-- APPLIED. Confirmed present in pg_trigger as "trail-request-alert" on
+-- public.trail_requests. Left here as the record of what was run -- re-running
+-- it would fail on the duplicate trigger name.
+--
+-- create trigger "trail-request-alert"
+--   after insert on public.trail_requests
+--   for each row
+--   execute function supabase_functions.http_request(
+--     'https://sigupaldsyuaomgllyvw.supabase.co/functions/v1/report-alert',
+--     'POST',
+--     '{"Content-type":"application/json","Authorization":"Bearer <ALERT_SECRET>"}',
+--     '{}',
+--     '5000'
+--   );
+--
+-- Both triggers are now live. This file is a record, not a to-do; check
+-- pg_trigger before assuming anything here still needs running:
+--
+--   select tgname from pg_trigger t join pg_class c on c.oid = t.tgrelid
+--   where not t.tgisinternal and c.relname in ('reports','trail_requests');
 
 -- Verify after applying, by inserting a request from the app's "can't find your
 -- trail" flow and checking the channel. To confirm delivery from SQL instead:

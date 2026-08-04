@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import React, { useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 
@@ -56,12 +56,17 @@ export default function ReportModal({
       details: details.trim() || null,
     });
     setSubmitting(false);
-    // Previously the insert result was discarded, so a report blocked by RLS or
-    // a dropped connection still showed the success toast.
+    // An earlier pass stopped the *success* toast firing on a failed insert,
+    // but still cleared the form and closed the sheet — so the reporter saw
+    // the same thing either way and had no idea their report never landed.
+    // Telling someone their abuse report was filed when it was not is the
+    // worst available outcome here, so this now says so and keeps the sheet
+    // open with their text intact so it can be retried.
     if (error) {
-      setReason("");
-      setDetails("");
-      onClose();
+      Alert.alert(
+        "Couldn't send report",
+        "Your report wasn't submitted. Please check your connection and try again.",
+      );
       return;
     }
     close();
