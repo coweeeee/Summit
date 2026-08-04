@@ -55,7 +55,7 @@ One deliberate consequence: the leaderboard is **viewer-dependent**. A private a
 
 - Expo Go stability: env-var Supabase config, auth session timeout+retry, `isExpoGo` guards around `expo-notifications`/`react-native-webview`/`react-native-maps`
 - Feed: FlatList + server-side pagination (`PAGE_SIZE = 20`), `expo-image`
-- Discover: FlatList + server-side filtering/search/pagination, region filter, map view, difficulty filter + tag filter. Tag chips are derived from real distinct `tags` values (`fetchCategoryFilters` in `discover.tsx`) — confirmed landed.
+- Discover: FlatList + server-side filtering/search/pagination, region filter, map view, difficulty filter + tag filter. Tag chips are derived from real distinct `tags` values (`fetchCategoryFilters` in `discover.tsx`) — confirmed landed. **Sorting applies to the list only** — `buildMapQuery` asks for no ordering, because a map has no row order, so the sort controls are disabled on the map tab rather than silently inert. The map camera fits whatever is in the current result set (`lib/mapRegion.ts`); it is no longer pinned to a hardcoded US region, which used to leave 111 of 225 trails outside the opening viewport and made 14 of the 41 region filters open on a blank map of Kansas.
 - Leaderboard tab (`app/(tabs)/leaderboard.tsx`): Most Hikes / Most Miles / Most Elevation, all-time or last 7 days. Aggregation happens in the `leaderboard_totals(since timestamptz)` RPC, **which must stay `SECURITY INVOKER`** — that is what keeps RLS evaluating as the viewer and preserves the intended viewer-dependent behaviour. Making it `SECURITY DEFINER` would leak private users' hikes into everyone's rankings. A "Top Rated" category was removed: it ranked people by the average score they gave their own hikes, which is self-reported and, at one or two hikes each, dominated by a single 5-star entry.
 - Trail catalog: 225 trails (manually seeded + OpenStreetMap via Overpass API + USGS National Map ingestion scripts — see `ingest_osm_trails.js` / `ingest_usgs_trails.js` if present in the repo, they're standalone Node scripts, not deployed anywhere). Deduped multiple times (FK-safely repointed `hikes.trail_id`/`want_to_hike.trail_id` before deleting losers). Difficulty/description backfilled for the 6 USGS trails that came in without them.
 - Trail bookmarking (`want_to_hike`) is the *only* "saved" concept — an earlier "save this hike log" feature was explicitly removed per product direction; if you see any lingering save-a-specific-hike-log UI, that's a regression, remove it
@@ -114,7 +114,7 @@ Phase 2 (Universal Links / App Links, so links open the app directly) is **block
 
 ## Things to verify first (uncertain completion state)
 
-1. Run `pnpm install` if `react-native-maps` or any other native dependency errors on start — this came up early and may need re-running after all the changes since
+1. Native dependency errors on start: **do not just run `pnpm install`**. `node_modules` is linked against pnpm store `v10` while the installed pnpm is 11.x, so a plain install migrates the whole tree and churns the lockfile. Use `npx pnpm@10 --filter @workspace/mobile add <pkg>`. Separately, `expo prebuild` fails with `Unicode Normalization not appropriate for ASCII-8BIT` unless run with `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` — CocoaPods, not Expo. The dev client is built by plain local `xcodebuild`; **EAS and an Expo login are not involved** and do not gate native work.
 2. ~~`discover.tsx` `PeopleTab.toggleFollow` missing `status`~~ — **fixed.** It now sets `status` explicitly and `fetchFollowing` selects it. The underlying gotcha still applies to any new follow-insert: the column default is `'accepted'`, so an insert that omits `status` is rejected outright for a private target.
 
 ## Explicitly not done yet (don't assume these exist)
@@ -204,9 +204,15 @@ Deliberately a separate screen, not `log.tsx` in an edit mode — that file is ~
 
 Note `hike-detail.tsx` keeps its own copy of the hike rather than reading `HikesContext`, so it refetches on regaining focus — without that, an edit saves correctly and you land back on stale numbers.
 
-### Nearby trails using device location
+### Nearby trails using device location — BUILT
 
-Not built. Every `trails` row already has `lat`/`lng`, so sorting or filtering Discover by distance from the user's current position is real discovery value that does not exist today. Scope the effort and, specifically, what location-permission handling it needs.
+Shipped 2026-08-04. A "Near me" chip leads the Discover chip row and writes the same `sortBy` the Filter & Sort modal does. Ranking is a client-side haversine (`lib/geo.ts`) over one full-catalogue fetch, because the server cannot order by a distance it does not know; an RPC becomes the right answer somewhere around 1,000–2,000 trails. `lib/location.ts` owns permission and position, `lib/useDeviceLocation.ts` the hook, `components/NearbyNotice.tsx` the states.
+
+Four things not to undo:
+- **No fallback coordinate, ever.** Every failure path reports why and returns nothing. `discover.tsx` still holds `US_REGION` as a map viewport — that is the tempting wrong answer, one import away.
+- **Null is not zero.** A trail with no coordinates keeps `distanceMi: null` and renders no label; a genuine `0.0` still shows. `sortByDistance` ranks unlocatable trails last rather than dropping them.
+- **A `granted` LocationUnavailableError is not a permission fact**, it is the fetch failing — usually the 12s timeout, which neither platform provides for you. Clearing `error` for that case made the sort fail completely silently, since nothing renders for `granted`.
+- **It is an offer, not a gate.** A missing permission costs the distance ordering and nothing else; the list stays fully usable behind an `InlineNotice`.
 
 ### Trail condition tags at log time — scoped, blocked on three decisions
 
