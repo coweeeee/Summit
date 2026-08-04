@@ -30,6 +30,7 @@ type HikesContextType = {
   awardedBadgeKeys: Set<string>
   loading: boolean
   addHike: (hike: Omit<Hike, 'id'> & { trailId?: string }) => Promise<{ id: string } | { error: string }>
+  updateHike: (id: string, fields: Pick<Hike, 'distanceMi' | 'elevationFt' | 'durationHr' | 'difficulty' | 'notes' | 'date'>) => Promise<{ id: string } | { error: string }>
   toggleLike: (hikeId: string) => Promise<void>
   refresh: () => Promise<void>
 }
@@ -182,6 +183,51 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
     return dimRatingsError ? { error: `Hike saved, but ratings failed to save: ${dimRatingsError}` } : { id: hikeData.id }
   }
 
+  /**
+   * Edit the factual fields of an existing hike.
+   *
+   * Deliberately narrower than addHike: no trail, ratings or photos. Ratings
+   * are excluded because dim_ratings has INSERT and UPDATE policies but no
+   * DELETE, so un-rating a dimension would fail silently — that needs a
+   * migration before an edit screen can honestly offer it.
+   *
+   * RLS already restricts UPDATE to your own rows, so the eq(user_id) below is
+   * belt and braces rather than the actual guard — it turns a policy violation
+   * into a plain "no rows matched" instead of a confusing error.
+   *
+   * Ends in the same syncBadges(fetchHikes()) as addHike, which is what lets an
+   * edited start time newly earn Early Bird. Badges are never revoked, so an
+   * edit that stops qualifying keeps the badge — see CLAUDE.md.
+   */
+  const updateHike = async (
+    id: string,
+    fields: Pick<Hike, 'distanceMi' | 'elevationFt' | 'durationHr' | 'difficulty' | 'notes' | 'date'>,
+  ) => {
+    if (!session) return { error: 'Not signed in.' }
+    const { data, error } = await supabase
+      .from('hikes')
+      .update({
+        distance_mi: fields.distanceMi,
+        elevation_ft: fields.elevationFt,
+        duration_hr: fields.durationHr ?? null,
+        difficulty: fields.difficulty,
+        notes: fields.notes,
+        date: fields.date,
+      })
+      .eq('id', id)
+      .eq('user_id', session.user.id)
+      .select('id')
+      .maybeSingle()
+
+    if (error) return { error: error.message }
+    // No row came back: either it is not yours or it no longer exists. Both are
+    // worth saying out loud rather than reporting a success that did nothing.
+    if (!data) return { error: 'That hike could not be updated.' }
+
+    await syncBadges(await fetchHikes())
+    return { id }
+  }
+
   const refresh = async () => {
     await syncBadges(await fetchHikes())
   }
@@ -200,7 +246,7 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <HikesContext.Provider value={{ hikes, likedIds, awardedBadgeKeys, loading, addHike, toggleLike, refresh }}>
+    <HikesContext.Provider value={{ hikes, likedIds, awardedBadgeKeys, loading, addHike, updateHike, toggleLike, refresh }}>
       {children}
     </HikesContext.Provider>
   )

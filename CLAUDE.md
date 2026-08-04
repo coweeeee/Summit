@@ -190,9 +190,18 @@ So this wants a **priority-ordered lookup over a curated subset**, not a 1:1 tab
 
 Not investigated yet. Sharing is live and about to bring cold visitors in, and Feed/Discover/Leaderboard likely read as broken or dead to a brand-new account rather than inviting. Audit the current empty-state copy and CTAs across those three screens and propose improvements. Separately, consider whether a short post-signup walkthrough (log a hike / discover / follow) is worth adding.
 
-### Hike editing screen
+### Hike editing screen — partially built
 
-Not built. The UPDATE policies on `hikes`, `dim_ratings` and `hike_photos` were written specifically to unblock this earlier in the audit, and the UI never followed. There is currently **no way to fix a typo or a wrong distance on a logged hike**. Scope it.
+`app/edit-hike.tsx` edits the **factual fields only**: distance, elevation, duration (including the "didn't track my time" case), difficulty, notes, and date/time. Reached from the owner's three-dot menu on hike detail. `HikesContext.updateHike` writes it and ends in the same `syncBadges(fetchHikes())` as `addHike`, which is what lets an edited start time newly earn Early Bird.
+
+Still not editable, and each for a reason rather than by omission:
+- **Ratings.** `dim_ratings` has INSERT and UPDATE policies but **no DELETE**, so un-rating a dimension would fail silently. Needs a migration before an edit screen can honestly offer it.
+- **Photos.** Needs reconciling `hike_photos` rows against storage objects on both add and remove. `deleteHike` in `hike-detail.tsx` is the pattern to copy.
+- **Which trail the hike belongs to.** A different operation from correcting numbers; the trail is shown read-only.
+
+Deliberately a separate screen, not `log.tsx` in an edit mode — that file is ~745 lines and also owns trail search, the trail-request flow, photo upload and ratings, so a mode flag would put the more important create path at risk. Shared input rules live in `lib/hikeForm.ts` so the two forms cannot drift.
+
+Note `hike-detail.tsx` keeps its own copy of the hike rather than reading `HikesContext`, so it refetches on regaining focus — without that, an edit saves correctly and you land back on stale numbers.
 
 ### Nearby trails using device location
 
@@ -216,3 +225,4 @@ Not built. A simple line chart over elevation data already being logged. Scoping
 - Distance/elevation always stored in miles/feet; convert only at the display layer
 - Any new user-facing action that should notify someone (comment, like, follow, achievement) should call `send-notification` client-side after the underlying insert succeeds, following the existing pattern in the codebase rather than adding new server-side triggers
 - Badge/achievement state is server-authoritative via `user_badges`, not just computed client-side for display
+- **Badges are awarded but never revoked**, and that is deliberate. `syncBadges` re-derives from the current hikes and inserts what is newly earned; nothing deletes. Editing a hike so it no longer qualifies therefore keeps the badge. This used to be unreachable — hikes were immutable — so if you ever add revocation, note it needs a DELETE policy on `user_badges` and means a user can lose a badge by fixing a typo

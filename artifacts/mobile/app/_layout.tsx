@@ -183,6 +183,7 @@ import {
           <Stack.Screen name="blocked-users" options={{ headerShown: false }} />
           <Stack.Screen name="trail-detail" options={{ headerShown: false, presentation: "modal" }} />
           <Stack.Screen name="hike-detail" options={{ headerShown: false, presentation: "modal" }} />
+          <Stack.Screen name="edit-hike" options={{ headerShown: false, presentation: "modal" }} />
           <Stack.Screen name="user-profile" options={{ headerShown: false }} />
           <Stack.Screen name="privacy-policy" options={{ headerShown: false, presentation: "modal" }} />
           <Stack.Screen name="terms-of-service" options={{ headerShown: false, presentation: "modal" }} />
