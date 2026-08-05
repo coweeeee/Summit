@@ -21,7 +21,7 @@ import {
   import { AuthProvider, useAuth } from "@/context/AuthContext";
   import { HikesProvider } from "@/context/HikesContext";
   import Colors from "@/constants/colors";
-  import { supabase } from "@/lib/supabase";
+  import { supabase, supabaseConfigError } from "@/lib/supabase";
 
   SplashScreen.preventAutoHideAsync();
 
@@ -170,6 +170,37 @@ import {
     btnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#fff" },
   });
 
+  // Not routed through <ErrorBoundary>: a credential-less build fails while
+  // this module's own imports are still evaluating, which is before React
+  // renders anything at all. RootLayout is the first point where a message can
+  // be put on screen, so the check lives there and this is what it shows.
+  function ConfigErrorScreen({ message }: { message: string }) {
+    return (
+      <View style={configStyles.container}>
+        <Text style={configStyles.title}>Missing configuration</Text>
+        <Text style={configStyles.body}>{message}</Text>
+        <Text style={configStyles.hint}>
+          Add the missing values to artifacts/mobile/.env and rebuild.
+        </Text>
+      </View>
+    );
+  }
+
+  const configStyles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: Colors.bg,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 32,
+    },
+    // No Inter here on purpose -- useFonts may not have resolved, and a config
+    // failure has to stay legible regardless of what else did or didn't load.
+    title: { fontSize: 22, fontWeight: "700", color: Colors.text, marginBottom: 12, textAlign: "center" },
+    body: { fontSize: 14, color: Colors.text3, textAlign: "center", marginBottom: 8, lineHeight: 20 },
+    hint: { fontSize: 13, color: Colors.text3, textAlign: "center", lineHeight: 20 },
+  });
+
   function RootLayoutNav() {
     return (
       <>
@@ -201,8 +232,14 @@ import {
     });
 
     useEffect(() => {
-      if (fontsLoaded || fontError) SplashScreen.hideAsync();
+      // A config failure has to drop the splash too. Gating only on fonts is
+      // what turned a missing-credentials build into a permanent hang.
+      if (supabaseConfigError || fontsLoaded || fontError) SplashScreen.hideAsync();
     }, [fontsLoaded, fontError]);
+
+    // Before the font gate: fonts are irrelevant if there is no backend, and
+    // returning null here would reinstate the blank hang.
+    if (supabaseConfigError) return <ConfigErrorScreen message={supabaseConfigError} />;
 
     if (!fontsLoaded && !fontError) return null;
 
