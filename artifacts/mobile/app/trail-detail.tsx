@@ -29,6 +29,7 @@ import TrailMap from "@/components/TrailMap";
 import { showActionSheet } from "@/lib/actionSheet";
 import { shareEntity, sharingAvailable } from "@/lib/share";
 import { buildTrailTips } from "@/lib/trailTips";
+import { summariseConditions, CONDITION_SUMMARY_CAVEAT, type SummarisedCondition } from "@/lib/conditionSummary";
 
 
 type Trail = {
@@ -82,6 +83,7 @@ export default function TrailDetailScreen() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [ratingStats, setRatingStats] = useState<TrailRatingStats | undefined>(undefined);
   const [ratingStatsFailed, setRatingStatsFailed] = useState(false);
+  const [conditionSummary, setConditionSummary] = useState<SummarisedCondition[]>([]);
 
   useEffect(() => {
     const fetchTrail = async () => {
@@ -91,6 +93,15 @@ export default function TrailDetailScreen() {
         const { count } = await supabase.from("hikes").select("*", { count: "exact", head: true }).eq("trail_id", data.id);
         setLogCount(count || 0);
         if (data.lat && data.lng) setCoords({ lat: data.lat, lng: data.lng });
+        // Tolerant of the view being absent: trail-conditions-summary.sql
+        // has not been applied yet, so this 404s until it is. A missing
+        // aggregate is not an error worth showing anybody — the section
+        // simply does not render.
+        const { data: condRows } = await supabase
+          .from("trail_conditions_summary")
+          .select("tag, prevalence")
+          .eq("trail_id", data.id);
+        setConditionSummary(summariseConditions(condRows ?? []));
         const { map, failed } = await fetchRatingStats([data.id]);
         setRatingStats(map.get(data.id));
         setRatingStatsFailed(failed);
@@ -282,6 +293,26 @@ export default function TrailDetailScreen() {
           </View>
         )}
 
+        {conditionSummary.length > 0 && (
+          <View style={styles.section}>
+            {/* Above "Good to know" deliberately: those tips are derived
+                from the trail's own numbers, these are what people actually
+                found when they went. Observation outranks inference. */}
+            <Text style={styles.sectionTitle}>Recent conditions</Text>
+            {conditionSummary.map(c => (
+              <View key={c.key} style={styles.tipRow}>
+                <Feather
+                  name={c.reassuring ? "check-circle" : "alert-triangle"}
+                  size={15}
+                  color={c.reassuring ? Colors.green : Colors.amber}
+                />
+                <Text style={styles.tipText}>{c.text}</Text>
+              </View>
+            ))}
+            <Text style={styles.conditionCaveat}>{CONDITION_SUMMARY_CAVEAT}</Text>
+          </View>
+        )}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Good to know</Text>
           {/* Derived per trail from distance, elevation, tags and the live
@@ -352,6 +383,7 @@ const styles = StyleSheet.create({
   tagText: { fontSize: 13, color: Colors.text2, fontFamily: "Inter_500Medium" },
   tipRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   tipText: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text2, flex: 1 },
+  conditionCaveat: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.text3, marginTop: 6, lineHeight: 15 },
   actionBar: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 12, backgroundColor: Colors.bg2, borderTopWidth: 1, borderTopColor: Colors.border },
   wantBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3 },
   wantBtnActive: { borderColor: Colors.accent, backgroundColor: "rgba(141,207,122,0.1)" },
