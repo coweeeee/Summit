@@ -79,7 +79,7 @@ import { Feather } from "@expo/vector-icons";
     const [pendingCount, setPendingCount] = useState(0);
 
     const totalMiles = hikes.reduce((s, h) => s + h.distanceMi, 0);
-    const totalElev  = hikes.reduce((s, h) => s + h.elevationFt, 0);
+    const totalElev  = hikes.reduce((s, h) => s + (h.elevationFt ?? 0), 0);
     const hasEarlyHike = hikes.some(h => isEarlyBirdStart(h.date));
 
     const fetchCounts = async () => {
@@ -249,7 +249,7 @@ import { Feather } from "@expo/vector-icons";
                   <HikeRowIcon tags={hike.trailTags} size={40} />
                   <View style={styles.hikeInfo}>
                     <Text style={styles.hikeName} numberOfLines={1}>{hike.trailName}</Text>
-                    <Text style={styles.hikeMeta}>{formatDistance(hike.distanceMi, distanceUnit)} · {formatElevation(hike.elevationFt, distanceUnit)} · {formatShortDate(hike.date)}</Text>
+                    <Text style={styles.hikeMeta}>{formatDistance(hike.distanceMi, distanceUnit)} · {hike.elevationFt != null ? formatElevation(hike.elevationFt, distanceUnit) : "—"} · {formatShortDate(hike.date)}</Text>
                   </View>
                   {hike.overallScore > 0 && (
                     <View style={styles.hikeRating}>
