@@ -127,7 +127,9 @@ Phase 2 (Universal Links / App Links, so links open the app directly) is **block
 - Display names: seven inert `@example.com` test accounts were deleted, leaving two profiles. One still has `full_name = null` **and** `username = null`, so it renders as "Anonymous Hiker". That is expected until it sets a username in Settings, not a bug. All name fallbacks now go through `displayName()` / `profileInitials()` in `lib/format.ts` — before that, seven different strings ("Anonymous Hiker", "Anonymous", "Someone", "this user", "Profile", "Hiker", "Your Name") covered the same case, and screens that never selected `username` showed "Anonymous Hiker" even for users who had a perfectly good handle.
 - Admin/moderation surface: `reports` and `trail_requests` can be written by users and read back only by their author, and there is still no in-app queue for either. Both now **announce themselves** — a Database Webhook on INSERT calls `report-alert`, which posts to a Slack/Discord channel; triage happens in the Supabase dashboard. Seeing a request is not the same as resolving one: `trail_requests.status` is `CHECK (status IN ('pending','added','declined'))` but **nothing anywhere writes `added` or `declined`**, there is no path from an approved request to an actual `trails` row, and the requester is never told what happened. Closing that loop needs a real admin surface and is not built.
 
-## Wishlist — specified but not built
+## Wishlist — state is on each heading, so read those first
+
+Several of these have since shipped and the headings say so. A heading reading BUILT means the code is on `main` unless it names a branch; two say "awaiting its migration", which means the code exists and is deliberately unmerged until DDL is applied. Do not re-plan an item without reading its heading — this section was the source of a wasted planning pass when "Nearby trails" still said "Not built" after it had shipped.
 
 ### Trail "Good to know" overhaul
 
@@ -214,26 +216,30 @@ Four things not to undo:
 - **A `granted` LocationUnavailableError is not a permission fact**, it is the fetch failing — usually the 12s timeout, which neither platform provides for you. Clearing `error` for that case made the sort fail completely silently, since nothing renders for `granted`.
 - **It is an offer, not a gate.** A missing permission costs the distance ordering and nothing else; the list stays fully usable behind an `InlineNotice`.
 
-### Trail condition tags at log time — scoped, blocked on three decisions
+### Trail condition tags at log time — BUILT, awaiting its migration
 
-Pulled out of the "Good to know" overhaul above as its own smaller, faster win: capturing conditions at log time is useful with one hike in the database, whereas everything aggregate needs hundreds. **Scoped and verified against the live schema; not built.**
+Decisions made and approved 2026-08-05; code on `feat/trail-condition-tags` (PR #23) and **deliberately unmerged until `supabase/trail-conditions.sql` is applied**, because `hikes.conditions` does not exist until then and the log form's insert would be rejected.
 
-**Storage: a `text[]` column on `hikes`, not a child table.** The deciding reason is one this project already hit — `dim_ratings` has SELECT/INSERT/UPDATE and **no DELETE**, which is exactly why ratings are not editable. A `hike_conditions` child table walks into the identical trap: de-selecting a tag is a DELETE and would fail silently. An array column makes removal an UPDATE, which `hikes` already has a working policy for. It also needs **no RLS changes** (`hikes` SELECT is already gated by `can_view_user_content`) and **no `select()` edits** — every read path already does `select('*')`. `trails.tags` is the precedent: `text[]` with a GIN index, because a tag is a valueless label, whereas `dim_ratings` is a table because each row carries a score.
+**Storage: a `text[]` column on `hikes`, not a child table.** The deciding reason is one this project already hit — `dim_ratings` has SELECT/INSERT/UPDATE and **no DELETE**, which is exactly why ratings are not editable. A child table walks into the identical trap: de-selecting a tag is a DELETE and would fail silently. An array makes removal an UPDATE, which `hikes` already has a policy for — which is why the edit screen can offer this at all. No RLS changes (`hikes` SELECT is already gated by `can_view_user_content`) and no `select()` edits, since every read path already does `select('*')`.
 
-**Two collisions in the log form** — this cannot simply be bolted on:
-- `log.tsx:41` — a **"Trail Cond."** star dimension already ships (`DIMENSIONS[2]`), with live `dim_ratings` rows. A "Conditions" chip row beside a "Trail Cond." star row is incoherent.
-- `log.tsx:455` — the Notes placeholder is literally `"Conditions, tips, highlights..."`, so the form already solicits this as prose.
+**Tags are stored as stable keys, not display labels** — deliberately unlike `trails.tags`, which holds capitalised strings. Those arrived from external ingestion already worded; these are ours, and wording we choose is wording we will want to change. Rewording should be a text edit, not a migration over live rows.
 
-**Include an affirmative "Good conditions" tag.** Without one, an empty array cannot distinguish "the trail was fine" from "this user ignored the selector" — which leaves any future aggregate with a numerator and no denominator. Cheap now, unrecoverable later, because you cannot retroactively decide what silence meant.
+**The three decisions, as settled:**
+1. **"Trail Cond." star renamed "Trail Quality."** The star is how good the tread was; the tags are what was in the way of it. Keeping both unrenamed read as the same question asked twice. Only 2 `dim_ratings` rows carried the old value, and the migration renames them — without that statement those rows keep rendering under a name the app no longer offers.
+2. **Ten tags, and "Good conditions" is in**, mutually exclusive with the hazards (enforced in `toggleConditionTag`, covered by tests). Without an affirmative tag an empty array cannot distinguish "the trail was fine" from "ignored the selector", leaving any aggregate a numerator with no denominator.
+3. **`created_at` rides along, but does not backfill.** Added bare, default set afterwards, so the 3 pre-existing rows stay NULL — honestly unknown rather than claiming they were created when the migration ran. **Queries must read NULL as "unknown", not "old".**
 
-**Three decisions that are the owner's, not the implementer's:**
-1. What happens to the "Trail Cond." star — rename to "Trail Quality" (recommended: the star is *how nice was the tread*, the tags are *what was in the way*), drop it, or keep both. Renaming touches existing `dim_ratings.name` values, which are free text.
-2. Whether the tag vocabulary is right, and whether "Good conditions" is in.
-3. Whether `created_at` rides along in the same migration. `hikes` has **no immutable timestamp** — `date` is the user-supplied hike date and is freely editable via the edit screen, so it cannot anchor a "last 90 days" window. Adding `created_at` after real rows exist backfills them all to one useless date.
+The Notes placeholder no longer says "Conditions, tips, highlights…" — it stopped soliciting as prose what the chips now capture as data.
 
-**Effort:** ~2–3h before the migration (vocabulary module + `node --test` unit tests, reviewable with no database access), ~3–4h after. The migration is DDL and needs handing to the owner's Supabase session.
+### Derived condition stats — BUILT, awaiting both migrations
 
-**Does not unblock the derived-stats half** — that is still gated on the minimum-sample-size decision and the aggregates-only privacy constraint recorded above.
+`feat/condition-summary` (PR #27), based on #23. Needs `supabase/trail-conditions.sql` **then** `supabase/trail-conditions-summary.sql`.
+
+All three privacy rules are enforced in the view, not the client, because a client guard is one anyone can query around: no `user_id` is selected, no counts are exposed (only a `most`/`some` band), and nothing is returned below threshold.
+
+**Threshold is 3 distinct *reporters*, not 3 reports.** Three reports from one hiker is one hiker's opinion, and publishing it as a fact about the trail is the individually-traceable statistic the rule exists to prevent.
+
+`security_invoker = true`, matching `trail_rating_stats` and `trails_with_ratings`, so the summary is **viewer-dependent** in the same way the leaderboard is — that is deliberate, not a bug to fix. Expect **zero rows even once applied**: 3 reporters required, 2 accounts exist. That is cold-start working.
 
 ### Basic moderation follow-through
 
@@ -243,9 +249,16 @@ Pulled out of the "Good to know" overhaul above as its own smaller, faster win: 
 
 Do *not* read the missing UPDATE policy as part of that bug. `status` cannot be moved through the API, but `service_role` and `postgres` both carry `rolbypassrls`, so dashboard triage — which is where `report-alert` says triage happens — already works. An UPDATE policy only becomes necessary when triage moves in-app, and it needs a moderator concept first to have anything to gate on.
 
-### Elevation profile chart on hike detail
+### Elevation on hike detail — BUILT, but not as a profile
 
-Not built. A simple line chart over elevation data already being logged. Scoping should start with what charting library is available — check the dependency tree before adding one, since this would be the app's first charting need.
+Shipped 2026-08-05. **A point-by-point elevation profile cannot be built from this schema, and that is a data fact rather than an effort estimate.** The only elevation columns anywhere are `hikes.elevation_ft` and `trails.elevation_ft`, each a single integer of total gain; there is no track, segment or waypoint table, and `trails.lat/lng` is one point per trail rather than a route, so there is nothing for an external elevation API to sample along either. Drawing a plausible *shape* from one total would be inventing the data, and the reader could not tell. A real profile needs GPS track logging during a hike, or route geometry per trail — new data, not new UI.
+
+What shipped instead: `lib/elevation.ts` derives average grade, and `components/SteepnessScale.tsx` places it on a five-band scale. Percentage leads because it needs no unit conversion. `lib/trailTips.ts` shares the same bands, so a trail cannot read "Moderate" on one screen and "Gentle grade" on another. No charting dependency was needed — `react-native-svg` is installed and linked, but five bars and a marker are plain Views.
+
+**The 0-versus-null rule, which differs between the two tables and is easy to get backwards:**
+- **`trails.elevation_ft = 0` is curated and true.** Anhinga Trail, Shark Valley Tram Road and Fort Jefferson Moat Walk are genuinely flat. Only `Frigid Crags` (distance 0 *and* elevation 0) is a real data gap. Do not hide 0 there.
+- **`hikes.elevation_ft` distinguishes 0 from null since 2026-08-05.** Null means the logger left it blank; 0 means flat. `parseOptionalInt` in `lib/hikeForm.ts` is what keeps them apart, and `averageGrade` returns null only when the ratio is genuinely unknowable. Anything reintroducing `|| 0` on that field collapses the distinction again.
+- The catalogue's extremes are real, not errors: GR20 at 39,000 ft over 112 mi, plus Tour du Mont Blanc, Annapurna and Kilimanjaro. Their grades land at 138–424 ft/mi. Worth knowing before building any shared-scale chart across trails.
 
 ## Working conventions to keep
 
