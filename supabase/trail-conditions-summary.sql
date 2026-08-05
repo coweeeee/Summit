@@ -1,8 +1,11 @@
 -- Aggregate condition reports per trail.
 --
--- NOT YET APPLIED, and it depends on supabase/trail-conditions.sql having run
--- first — it reads `hikes.conditions` and `hikes.created_at`, neither of which
--- exists until that migration lands.
+-- APPLIED 2026-08-05, after supabase/trail-conditions.sql, which it depends on
+-- for `hikes.conditions` and `hikes.created_at`. Verified live: the view exists
+-- with security_invoker=true, `authenticated` can select it, and it exposes
+-- exactly trail_id, tag and prevalence — no user_id and no counts. It returns
+-- zero rows today, which is the 3-distinct-reporter threshold working against
+-- 2 accounts rather than a fault.
 --
 -- ── Why a view ──────────────────────────────────────────────────────────────
 --
