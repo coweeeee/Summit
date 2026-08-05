@@ -20,6 +20,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-na
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { useHikes, DimRating } from "@/context/HikesContext";
+import { CONDITION_TAGS, toggleConditionTag } from "@/lib/trailConditions";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -38,7 +39,13 @@ import { uploadImage } from "@/lib/upload";
 
 // Ten years back is well beyond anything anyone is retro-logging, and the
 // picker's maximumDate still prevents choosing the future.
-const DIMENSIONS = ["Scenery", "Views", "Trail Cond.", "Crowds", "Accessibility"];
+// "Trail Quality", not "Trail Cond.". A Conditions chip row beside a
+// "Trail Cond." star row reads as the same question asked twice, and they are
+// not the same question: the star is how good the tread was, the tags below are
+// what was in the way of it. The 2 historical dim_ratings rows carrying the old
+// name are renamed by supabase/trail-conditions.sql, since the column is free
+// text and nothing would otherwise reconcile them.
+const DIMENSIONS = ["Scenery", "Views", "Trail Quality", "Crowds", "Accessibility"];
 
 type Trail = { id: string; name: string; location: string; distance_mi: number; elevation_ft: number; difficulty: string; rating: number; };
 
@@ -103,6 +110,7 @@ export default function LogScreen() {
   const [difficulty, setDifficulty] = useState("");
   const [notes, setNotes] = useState("");
   const [dimRatings, setDimRatings] = useState<Record<string, number>>({});
+  const [conditions, setConditions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [hikeDate, setHikeDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -244,7 +252,7 @@ export default function LogScreen() {
 
   const reset = () => {
     setSelectedTrail(null); setDistanceStr(""); setElevationStr(""); setDurationStr(""); setSkipDuration(false);
-    setDifficulty(""); setNotes(""); setDimRatings({}); setHikeDate(new Date()); setPhotos([]);
+    setDifficulty(""); setNotes(""); setDimRatings({}); setConditions([]); setHikeDate(new Date()); setPhotos([]);
   };
 
   const overallScore = Object.values(dimRatings).length > 0
@@ -316,6 +324,7 @@ export default function LogScreen() {
       dimRatings: ratings,
       notes: notes.trim(),
       date: hikeDate.toISOString(),
+      conditions,
       trailId: selectedTrail.id,
     });
 
@@ -451,8 +460,31 @@ export default function LogScreen() {
               </View>
             )}
 
+            {/* Above Notes on purpose. The Notes placeholder used to solicit
+                this as prose ("Conditions, tips, highlights…"), so leaving the
+                chips below it would ask for the same thing twice and get it in
+                two forms, only one of which is queryable. The placeholder drops
+                "Conditions" for the same reason. */}
+            <Text style={styles.fieldLabel}>Trail Conditions</Text>
+            <View style={styles.conditionsWrap}>
+              {CONDITION_TAGS.map(tag => {
+                const active = conditions.includes(tag.key);
+                return (
+                  <Pressable
+                    key={tag.key}
+                    onPress={() => { Haptics.selectionAsync(); setConditions(prev => toggleConditionTag(prev, tag.key)); }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    style={[styles.conditionChip, active && styles.conditionChipActive]}
+                  >
+                    <Text style={[styles.conditionChipText, active && styles.conditionChipTextActive]}>{tag.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
             <Text style={styles.fieldLabel}>Notes</Text>
-            <TextInput style={[styles.input, styles.textarea]} placeholder="Conditions, tips, highlights..." placeholderTextColor={Colors.text3} value={notes} onChangeText={setNotes} multiline numberOfLines={3} />
+            <TextInput style={[styles.input, styles.textarea]} placeholder="Tips, highlights, anything worth passing on..." placeholderTextColor={Colors.text3} value={notes} onChangeText={setNotes} multiline numberOfLines={3} />
 
             {/* Photos */}
             <Text style={styles.fieldLabel}>Photos</Text>
@@ -668,6 +700,14 @@ const styles = StyleSheet.create({
   skipText: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text3 },
   skipTextActive: { color: Colors.text2 },
   diffRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 },
+  // Wraps rather than scrolls horizontally: ten tags in a scroller would hide
+  // most of them behind a gesture nobody knows to make, and the affirmative
+  // "Good conditions" tag leads the list precisely so it is seen.
+  conditionsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
+  conditionChip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3 },
+  conditionChipActive: { backgroundColor: Colors.green2, borderColor: Colors.green2 },
+  conditionChipText: { fontSize: 13, fontFamily: "Inter_500Medium", color: Colors.text2 },
+  conditionChipTextActive: { color: "#fff", fontFamily: "Inter_600SemiBold" },
   diffChip: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: Colors.border2, backgroundColor: Colors.bg3 },
   diffChipActive: { backgroundColor: Colors.green2, borderColor: Colors.green2 },
   diffChipText: { fontSize: 13, fontFamily: "Inter_500Medium", color: Colors.text2 },

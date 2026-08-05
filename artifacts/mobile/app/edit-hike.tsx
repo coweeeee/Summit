@@ -21,6 +21,7 @@ import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useHikes } from "@/context/HikesContext";
 import { formatDateTime } from "@/lib/format";
+import { CONDITION_TAGS, toggleConditionTag } from "@/lib/trailConditions";
 import { DIFFICULTIES, YEAR_OPTIONS, filterDecimal, filterInteger, withYear } from "@/lib/hikeForm";
 import {
   distanceFromMiles,
@@ -62,6 +63,7 @@ export default function EditHikeScreen() {
   const [skipDuration, setSkipDuration] = useState(false);
   const [difficulty, setDifficulty] = useState("");
   const [notes, setNotes] = useState("");
+  const [conditions, setConditions] = useState<string[]>([]);
   const [hikeDate, setHikeDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -80,6 +82,7 @@ export default function EditHikeScreen() {
     setDurationStr(hike.durationHr != null ? String(hike.durationHr) : "");
     setDifficulty(hike.difficulty || "");
     setNotes(hike.notes || "");
+    setConditions(hike.conditions || []);
     if (hike.date) setHikeDate(new Date(hike.date));
     setReady(true);
   }, [hike, ready, distanceUnit]);
@@ -104,6 +107,7 @@ export default function EditHikeScreen() {
       difficulty,
       notes: notes.trim(),
       date: hikeDate.toISOString(),
+      conditions,
     });
     setSaving(false);
 
@@ -218,6 +222,28 @@ export default function EditHikeScreen() {
           ))}
         </View>
 
+        {/* Editable here, which is the point of storing these in an array
+            column: de-selecting a tag is an UPDATE, and `hikes` has a policy
+            for that. A child table would have needed DELETE, which
+            `dim_ratings` lacks — the reason ratings still cannot be edited. */}
+        <Text style={styles.fieldLabel}>Trail Conditions</Text>
+        <View style={styles.conditionsWrap}>
+          {CONDITION_TAGS.map(tag => {
+            const active = conditions.includes(tag.key);
+            return (
+              <Pressable
+                key={tag.key}
+                onPress={() => setConditions(prev => toggleConditionTag(prev, tag.key))}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                style={[styles.conditionChip, active && styles.conditionChipActive]}
+              >
+                <Text style={[styles.conditionChipText, active && styles.conditionChipTextActive]}>{tag.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
         <Text style={styles.fieldLabel}>Notes</Text>
         <TextInput
           style={[styles.input, styles.notesInput]}
@@ -301,6 +327,11 @@ const styles = StyleSheet.create({
   skipTextActive: { color: Colors.text2 },
 
   diffRow: { flexDirection: "row", gap: 8 },
+  conditionsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  conditionChip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.bg2 },
+  conditionChipActive: { backgroundColor: Colors.green2, borderColor: Colors.green2 },
+  conditionChipText: { fontSize: 13, fontFamily: "Inter_500Medium", color: Colors.text2 },
+  conditionChipTextActive: { color: "#fff", fontFamily: "Inter_600SemiBold" },
   diffChip: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center", backgroundColor: Colors.bg2, borderWidth: 1, borderColor: Colors.border },
   diffChipActive: { backgroundColor: Colors.green2, borderColor: Colors.green },
   diffChipText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.text2 },

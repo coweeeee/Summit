@@ -23,6 +23,7 @@ import { Feather } from "@expo/vector-icons";
   import { formatDistance, formatElevation } from "@/lib/units";
   import { ANONYMOUS_LABEL, displayName, formatFullDate, getDiffColor, getInitials, timeAgo } from "@/lib/format";
   import { averageGrade } from "@/lib/elevation";
+  import { conditionLabels, reportedGoodConditions } from "@/lib/trailConditions";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
   import SteepnessScale from "@/components/SteepnessScale";
   import { showActionSheet } from "@/lib/actionSheet";
@@ -33,6 +34,8 @@ import { Feather } from "@expo/vector-icons";
     elevation_ft: number; duration_hr: number | null; difficulty: string;
     overall_score: number; notes: string; date: string; user_id: string;
     trail_id: string | null; dim_ratings: { name: string; score: number }[];
+    /** Optional so rows predating the migration, and pre-migration clients, both read cleanly. */
+    conditions?: string[] | null;
   };
 
   type Comment = { id: string; content: string; created_at: string; user_id: string; userName: string; };
@@ -314,6 +317,34 @@ import { Feather } from "@expo/vector-icons";
             return grade ? <SteepnessScale grade={grade} roundTrip /> : null;
           })()}
 
+          {/* Rendered only when something was recorded. An absent section says
+              "not reported", which is the truth — it must not read as "no
+              problems", because that is what the "Good conditions" tag is for
+              and the two have to stay distinguishable. */}
+          {(() => {
+            const labels = conditionLabels(hike.conditions);
+            if (labels.length === 0) return null;
+            const allClear = reportedGoodConditions(hike.conditions);
+            return (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Trail conditions</Text>
+                <View style={styles.conditionsRow}>
+                  {labels.map(label => (
+                    <View key={label} style={[styles.conditionPill, allClear && styles.conditionPillGood]}>
+                      <Feather
+                        name={allClear ? "check" : "alert-triangle"}
+                        size={11}
+                        color={allClear ? Colors.green : Colors.amber}
+                      />
+                      <Text style={[styles.conditionPillText, allClear && styles.conditionPillTextGood]}>{label}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={styles.conditionsWhen}>Reported on {formatFullDate(hike.date)}</Text>
+              </View>
+            );
+          })()}
+
           {hike.dim_ratings && hike.dim_ratings.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Ratings</Text>
@@ -456,6 +487,15 @@ import { Feather } from "@expo/vector-icons";
     statLbl: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.text3, textTransform: "uppercase", letterSpacing: 0.5 },
     section: { paddingHorizontal: 20, marginTop: 16 },
     sectionTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text, marginBottom: 10 },
+    conditionsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    // Amber by default because a condition tag is a caution; green only for the
+    // affirmative "Good conditions", which is the one tag that is reassurance
+    // rather than warning.
+    conditionPill: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 6, paddingHorizontal: 11, borderRadius: 14, borderWidth: 1, borderColor: "rgba(212,148,58,0.45)", backgroundColor: "rgba(212,148,58,0.12)" },
+    conditionPillGood: { borderColor: "rgba(109,184,122,0.5)", backgroundColor: "rgba(109,184,122,0.12)" },
+    conditionPillText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.amber },
+    conditionPillTextGood: { color: Colors.green },
+    conditionsWhen: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.text3, marginTop: 8 },
     ratingRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
     ratingName: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.text2, width: 100 },
     stars: { flexDirection: "row", gap: 3, flex: 1 },
