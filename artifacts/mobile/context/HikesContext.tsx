@@ -23,6 +23,15 @@ export type Hike = {
   dimRatings: DimRating[]
   notes: string
   date: string
+  /**
+   * Condition keys from lib/trailConditions.ts — stable keys, not labels.
+   *
+   * Empty means nothing was recorded, which is deliberately distinguishable
+   * from holding the "good" key, i.e. the hiker actively said the trail was
+   * fine. Collapsing those two would leave any future aggregate with a
+   * numerator and no denominator.
+   */
+  conditions: string[]
   user_id?: string
   trail_id?: string
   /** The linked trail's tags, for the row icon. Empty when trail_id is null. */
@@ -35,7 +44,7 @@ type HikesContextType = {
   awardedBadgeKeys: Set<string>
   loading: boolean
   addHike: (hike: Omit<Hike, 'id'> & { trailId?: string }) => Promise<{ id: string } | { error: string }>
-  updateHike: (id: string, fields: Pick<Hike, 'distanceMi' | 'elevationFt' | 'durationHr' | 'difficulty' | 'notes' | 'date'>) => Promise<{ id: string } | { error: string }>
+  updateHike: (id: string, fields: Pick<Hike, 'distanceMi' | 'elevationFt' | 'durationHr' | 'difficulty' | 'notes' | 'date' | 'conditions'>) => Promise<{ id: string } | { error: string }>
   toggleLike: (hikeId: string) => Promise<void>
   refresh: () => Promise<void>
 }
@@ -58,6 +67,9 @@ function mapHike(h: any): Hike {
     dimRatings: (h.dim_ratings || []).map((d: any) => ({ name: d.name, score: d.score })),
     notes: h.notes || '',
     date: h.date,
+    // `|| []` covers rows written before the conditions column existed, and any
+    // client reading this before the migration has been applied.
+    conditions: h.conditions || [],
     user_id: h.user_id,
     trail_id: h.trail_id,
     // Embedded rather than fetched separately: the hikes.trail_id -> trails.id
@@ -172,6 +184,7 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
         overall_score: hike.overallScore,
         notes: hike.notes,
         date: hike.date || new Date().toISOString(),
+        conditions: hike.conditions ?? [],
         trail_id: hike.trailId || null,
       })
       .select()
@@ -211,7 +224,7 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
    */
   const updateHike = async (
     id: string,
-    fields: Pick<Hike, 'distanceMi' | 'elevationFt' | 'durationHr' | 'difficulty' | 'notes' | 'date'>,
+    fields: Pick<Hike, 'distanceMi' | 'elevationFt' | 'durationHr' | 'difficulty' | 'notes' | 'date' | 'conditions'>,
   ) => {
     if (!session) return { error: 'Not signed in.' }
     const { data, error } = await supabase
@@ -223,6 +236,11 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
         difficulty: fields.difficulty,
         notes: fields.notes,
         date: fields.date,
+        // Editable, and that is the whole reason for an array column: removing
+        // a tag here is an UPDATE, which `hikes` has a policy for. A child
+        // table would have needed a DELETE policy, which `dim_ratings` lacks —
+        // the exact reason ratings are still not editable.
+        conditions: fields.conditions ?? [],
       })
       .eq('id', id)
       .eq('user_id', session.user.id)
