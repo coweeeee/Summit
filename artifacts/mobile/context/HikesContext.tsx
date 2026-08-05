@@ -11,7 +11,12 @@ export type Hike = {
   trailName: string
   location: string
   distanceMi: number
-  elevationFt: number
+  /**
+   * Null when the logger left the field blank — distinct from 0, which is a
+   * real elevation. Collapsing the two is what made hike detail unable to
+   * describe a flat hike as flat.
+   */
+  elevationFt: number | null
   durationHr?: number
   difficulty: string
   overallScore: number
@@ -43,7 +48,10 @@ function mapHike(h: any): Hike {
     trailName: h.trail_name,
     location: h.location || '',
     distanceMi: h.distance_mi || 0,
-    elevationFt: h.elevation_ft || 0,
+    // `?? null`, not `|| 0`: the old form turned a genuine 0 into 0 harmlessly
+    // but also turned NULL into 0, which is the coercion this fix exists to
+    // remove. Reading it back as null keeps unknown distinguishable from flat.
+    elevationFt: h.elevation_ft ?? null,
     durationHr: h.duration_hr,
     difficulty: h.difficulty || '',
     overallScore: h.overall_score || 0,
@@ -105,7 +113,9 @@ export function HikesProvider({ children }: { children: React.ReactNode }) {
     if (!session) return
     const awarded = await fetchBadges()
     const hikeCount = currentHikes.length
-    const totalElevFt = currentHikes.reduce((s, h) => s + h.elevationFt, 0)
+    // Unrecorded elevation contributes nothing rather than NaN-ing the total
+    // and silently costing somebody a badge they had earned.
+    const totalElevFt = currentHikes.reduce((s, h) => s + (h.elevationFt ?? 0), 0)
     const hasEarlyHike = currentHikes.some(h => isEarlyBirdStart(h.date))
 
     const missing = BADGE_DEFINITIONS.filter(

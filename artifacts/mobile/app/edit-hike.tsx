@@ -21,7 +21,7 @@ import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useHikes } from "@/context/HikesContext";
 import { formatDateTime } from "@/lib/format";
-import { DIFFICULTIES, YEAR_OPTIONS, filterDecimal, filterInteger, withYear } from "@/lib/hikeForm";
+import { DIFFICULTIES, YEAR_OPTIONS, filterDecimal, filterInteger, parseOptionalInt, withYear } from "@/lib/hikeForm";
 import {
   distanceFromMiles,
   distanceToMiles,
@@ -97,9 +97,12 @@ export default function EditHikeScreen() {
       return;
     }
     setSaving(true);
+    // Clearing the field now clears the value, rather than silently
+    // rewriting it to zero.
+    const elevationEntered = parseOptionalInt(elevationStr);
     const result = await updateHike(hike.id, {
       distanceMi: distanceToMiles(parseFloat(distanceStr) || 0, distanceUnit),
-      elevationFt: Math.round(elevationToFeet(parseInt(elevationStr) || 0, distanceUnit)),
+      elevationFt: elevationEntered === null ? null : Math.round(elevationToFeet(elevationEntered, distanceUnit)),
       durationHr: skipDuration ? undefined : parseFloat(durationStr) || undefined,
       difficulty,
       notes: notes.trim(),
