@@ -15,9 +15,11 @@ Core tables: `profiles`, `trails`, `hikes`, `comments`, `likes`, `follows`, `hik
 
 `saved_hikes` was **dropped** — it had zero rows and zero client references, a leftover of the removed save-a-hike-log feature. Don't re-add it.
 
+`hikes` gained two columns on 2026-08-05. **`conditions text[] NOT NULL default '{}'`** holds stable keys from `lib/trailConditions.ts` — keys, not display labels, so wording can change without a migration. **`created_at timestamptz`** is nullable *on purpose*: it is NULL for the three rows that predate it, which means **unknown, not old**, and anything windowing on it must exclude NULL rather than assume. `date` remains the user-supplied hike date and is editable, which is exactly why it cannot anchor a time window.
+
 `profiles.avatar_preset` (text, nullable) holds a preset-icon key (`pine-tree`, `terrain`, …) defined in `lib/avatars.ts`. It is **mutually exclusive with `avatar_url`**: the Settings picker clears whichever one you didn't just choose, so a row never carries both. Read it only through `<Avatar>` — see the shared modules section.
 
-Views: `trail_rating_stats` (avg_rating/rating_count computed from `hikes.overall_score`, not the old static `trails.rating`), `trails_with_ratings` (all of `trails` plus `effective_rating`/`rating_count` — Discover's "Top Rated" sort uses this).
+Views: `trail_rating_stats` (avg_rating/rating_count computed from `hikes.overall_score`, not the old static `trails.rating`), `trails_with_ratings` (all of `trails` plus `effective_rating`/`rating_count` — Discover's "Top Rated" sort uses this). `trail_conditions_summary` (condition tags reported per trail in the last 90 days — suppressed entirely below 3 distinct reporters, and exposing only `trail_id, tag, prevalence`, so no `user_id` and no count can leak). All three are `security_invoker = true`, which makes them **viewer-dependent**: RLS applies as the reader, so two people can legitimately see different aggregates. That is the same property the leaderboard has and is deliberate.
 
 Database functions:
 - `is_username_available(check_username text) returns boolean` — `SECURITY DEFINER`; used at signup. Compares `lower(username)`, matching the `profiles_username_lower_key` unique index.
@@ -129,7 +131,7 @@ Phase 2 (Universal Links / App Links, so links open the app directly) is **block
 
 ## Wishlist — state is on each heading, so read those first
 
-Several of these have since shipped and the headings say so. A heading reading BUILT means the code is on `main` unless it names a branch; two say "awaiting its migration", which means the code exists and is deliberately unmerged until DDL is applied. Do not re-plan an item without reading its heading — this section was the source of a wasted planning pass when "Nearby trails" still said "Not built" after it had shipped.
+Several of these have since shipped and the headings say so. A heading reading BUILT means the code is on `main`. Do not re-plan an item without reading its heading — this section was the source of a wasted planning pass when "Nearby trails" still said "Not built" after it had shipped.
 
 ### Trail "Good to know" overhaul
 
@@ -216,9 +218,9 @@ Four things not to undo:
 - **A `granted` LocationUnavailableError is not a permission fact**, it is the fetch failing — usually the 12s timeout, which neither platform provides for you. Clearing `error` for that case made the sort fail completely silently, since nothing renders for `granted`.
 - **It is an offer, not a gate.** A missing permission costs the distance ordering and nothing else; the list stays fully usable behind an `InlineNotice`.
 
-### Trail condition tags at log time — BUILT, awaiting its migration
+### Trail condition tags at log time — BUILT
 
-Decisions made and approved 2026-08-05; code on `feat/trail-condition-tags` (PR #23) and **deliberately unmerged until `supabase/trail-conditions.sql` is applied**, because `hikes.conditions` does not exist until then and the log form's insert would be rejected.
+Shipped 2026-08-05 (PR #23). `supabase/trail-conditions.sql` is applied. Round trip verified end to end against the real column: logging with tags stored `["muddy","bugs"]`, the edit screen read them back pre-selected, tapping "Good conditions" cleared both, and saving stored `["good"]` — the removal-via-UPDATE that the array column exists to make possible.
 
 **Storage: a `text[]` column on `hikes`, not a child table.** The deciding reason is one this project already hit — `dim_ratings` has SELECT/INSERT/UPDATE and **no DELETE**, which is exactly why ratings are not editable. A child table walks into the identical trap: de-selecting a tag is a DELETE and would fail silently. An array makes removal an UPDATE, which `hikes` already has a policy for — which is why the edit screen can offer this at all. No RLS changes (`hikes` SELECT is already gated by `can_view_user_content`) and no `select()` edits, since every read path already does `select('*')`.
 
@@ -231,9 +233,9 @@ Decisions made and approved 2026-08-05; code on `feat/trail-condition-tags` (PR 
 
 The Notes placeholder no longer says "Conditions, tips, highlights…" — it stopped soliciting as prose what the chips now capture as data.
 
-### Derived condition stats — BUILT, awaiting both migrations
+### Derived condition stats — BUILT
 
-`feat/condition-summary` (PR #27), based on #23. Needs `supabase/trail-conditions.sql` **then** `supabase/trail-conditions-summary.sql`.
+Shipped 2026-08-05 (PR #27). Both migrations applied. `trail_conditions_summary` exposes exactly three columns — `trail_id, tag, prevalence` — verified against the catalogue, so there is no `user_id` and no count to leak.
 
 All three privacy rules are enforced in the view, not the client, because a client guard is one anyone can query around: no `user_id` is selected, no counts are exposed (only a `most`/`some` band), and nothing is returned below threshold.
 

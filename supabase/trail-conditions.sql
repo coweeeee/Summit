@@ -1,12 +1,16 @@
 -- Trail condition tags at log time.
 --
--- NOT YET APPLIED. This is DDL and belongs in the owner's Supabase session,
--- like webhooks.sql and moderation-integrity.sql. Recorded here because work
--- applied through the dashboard otherwise leaves no trace in the repo.
+-- APPLIED 2026-08-05. Verified against the live catalogue afterwards:
+-- `hikes.conditions` is text[] NOT NULL default '{}', `hikes.created_at` is
+-- nullable with default now(), the GIN index exists, and dim_ratings holds two
+-- 'Trail Quality' rows with no 'Trail Cond.' remaining. The three pre-existing
+-- hikes kept created_at NULL, which is the point of the two-statement form
+-- below — they were not backfilled with a timestamp they never had.
 --
--- Until it runs, the client code on this branch cannot work: `hikes.conditions`
--- does not exist yet, so the log form's insert would be rejected. The branch is
--- therefore deliberately unmerged.
+-- DO NOT RE-RUN. Section 3 is a data update that is already done, and re-running
+-- it is harmless only because it now matches nothing. Recorded here because DDL
+-- applied through the dashboard otherwise leaves no trace in the repo, which is
+-- the same reason webhooks.sql exists.
 --
 -- ── Why an array column and not a child table ───────────────────────────────
 --
