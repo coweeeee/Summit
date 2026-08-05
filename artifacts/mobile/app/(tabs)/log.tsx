@@ -34,7 +34,7 @@ import {
   formatElevation,
 } from "@/lib/units";
 import { formatDateTime, getDiffColor } from "@/lib/format";
-import { DIFFICULTIES, YEAR_OPTIONS, filterDecimal, filterInteger, withYear } from "@/lib/hikeForm";
+import { DIFFICULTIES, YEAR_OPTIONS, filterDecimal, filterInteger, parseOptionalInt, withYear } from "@/lib/hikeForm";
 import { uploadImage } from "@/lib/upload";
 
 // Ten years back is well beyond anything anyone is retro-logging, and the
@@ -310,6 +310,7 @@ export default function LogScreen() {
   const handleSubmit = async () => {
     if (!canSubmit || !selectedTrail) return;
     setLoading(true);
+    const elevationEntered = parseOptionalInt(elevationStr);
     const ratings: DimRating[] = DIMENSIONS.filter(d => dimRatings[d] !== undefined).map(d => ({ name: d, score: dimRatings[d] }));
     const result = await addHike({
       trailName: selectedTrail.name,
@@ -317,7 +318,9 @@ export default function LogScreen() {
       // The inputs are in the user's units; storage is always miles/feet.
       // `elevation_ft` is an integer column, so the converted value is rounded.
       distanceMi: distanceToMiles(parseFloat(distanceStr) || 0, distanceUnit),
-      elevationFt: Math.round(elevationToFeet(parseInt(elevationStr) || 0, distanceUnit)),
+      // Blank stays blank. `|| 0` here is what stored a real 0 for an
+      // unfilled field and made "flat" and "not recorded" the same row.
+      elevationFt: elevationEntered === null ? null : Math.round(elevationToFeet(elevationEntered, distanceUnit)),
       durationHr,
       difficulty,
       overallScore: overallScore || 0,
