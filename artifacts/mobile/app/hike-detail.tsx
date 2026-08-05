@@ -30,7 +30,8 @@ import { Feather } from "@expo/vector-icons";
 
   type HikeDetail = {
     id: string; trail_name: string; location: string; distance_mi: number;
-    elevation_ft: number; duration_hr: number | null; difficulty: string;
+    // Nullable since the log form stopped coercing a blank field to 0.
+    elevation_ft: number | null; duration_hr: number | null; difficulty: string;
     overall_score: number; notes: string; date: string; user_id: string;
     trail_id: string | null; dim_ratings: { name: string; score: number }[];
   };
@@ -295,7 +296,7 @@ import { Feather } from "@expo/vector-icons";
 
           <View style={styles.statsGrid}>
             {hike.distance_mi > 0 && <View style={styles.statBox}><Feather name="navigation" size={16} color={Colors.accent} /><Text style={styles.statVal}>{formatDistance(hike.distance_mi, distanceUnit)}</Text><Text style={styles.statLbl}>Distance</Text></View>}
-            {hike.elevation_ft > 0 && <View style={[styles.statBox, styles.statBorder]}><Feather name="trending-up" size={16} color={Colors.accent} /><Text style={styles.statVal}>{formatElevation(hike.elevation_ft, distanceUnit)}</Text><Text style={styles.statLbl}>Elevation</Text></View>}
+            {hike.elevation_ft != null && <View style={[styles.statBox, styles.statBorder]}><Feather name="trending-up" size={16} color={Colors.accent} /><Text style={styles.statVal}>{formatElevation(hike.elevation_ft, distanceUnit)}</Text><Text style={styles.statLbl}>Elevation</Text></View>}
             {hike.duration_hr != null && <View style={[styles.statBox, styles.statBorder]}><Feather name="clock" size={16} color={Colors.accent} /><Text style={styles.statVal}>{hike.duration_hr.toFixed(1)} hr</Text><Text style={styles.statLbl}>Duration</Text></View>}
             {hike.overall_score > 0 && <View style={[styles.statBox, hike.duration_hr ? styles.statBorder : {}]}><Feather name="star" size={16} color={Colors.amber2} /><Text style={[styles.statVal, { color: Colors.amber2 }]}>{hike.overall_score.toFixed(1)}</Text><Text style={styles.statLbl}>Score</Text></View>}
           </View>
@@ -310,7 +311,11 @@ import { Feather } from "@expo/vector-icons";
               instead. The fix is for the form to store null for blank, which is
               a change to the log and edit screens rather than to this one. */}
           {(() => {
-            const grade = hike.elevation_ft > 0 ? averageGrade(hike.elevation_ft, hike.distance_mi) : null;
+            // No `> 0` gate any more. Now that a blank field stores null,
+            // a stored 0 is a real measurement and a flat hike can honestly
+            // be called flat. averageGrade already returns null for the
+            // cases that are genuinely unknowable.
+            const grade = averageGrade(hike.elevation_ft, hike.distance_mi);
             return grade ? <SteepnessScale grade={grade} roundTrip /> : null;
           })()}
 

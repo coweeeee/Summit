@@ -36,3 +36,24 @@ export function filterDecimal(val: string): string {
 export function filterInteger(val: string): string {
   return val.replace(/[^0-9]/g, "");
 }
+
+/**
+ * A whole-number field the user is allowed to leave empty. Null for blank.
+ *
+ * Blank returning null is the entire point. Both forms previously did
+ * `parseInt(elevationStr) || 0`, so an empty elevation stored 0 — and 0 is a
+ * real elevation. That collapsed "I didn't record this" and "this trail is
+ * flat" into one value the schema can never tell apart again, which is why
+ * hike detail has to hide its elevation stat entirely rather than risk
+ * describing an unfilled hike as flat.
+ *
+ * `|| 0` also swallowed genuine nonsense — a field containing "abc" became 0
+ * rather than being treated as absent. NaN returns null here too: unknown, not
+ * zero.
+ */
+export function parseOptionalInt(val: string): number | null {
+  const trimmed = val.trim();
+  if (trimmed === "") return null;
+  const parsed = parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}

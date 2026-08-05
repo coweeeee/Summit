@@ -29,7 +29,7 @@ import { Feather } from "@expo/vector-icons";
   const PAGE_SIZE = 20;
   type FeedHike = {
     id: string; trail_name: string; location: string; distance_mi: number;
-    elevation_ft: number; duration_hr: number | null; difficulty: string;
+    elevation_ft: number | null; duration_hr: number | null; difficulty: string;
     overall_score: number; notes: string; date: string; user_id: string;
     trail_id: string | null; dim_ratings: { name: string; score: number }[];
     userName?: string; photos?: string[]; commentCount?: number;
@@ -343,7 +343,7 @@ import { Feather } from "@expo/vector-icons";
             {hike.location ? <Text style={styles.location}>{hike.location}</Text> : null}
             <View style={styles.statsRow}>
               {hike.distance_mi > 0 && <View style={styles.stat}><Text style={styles.statVal}>{formatDistance(hike.distance_mi, distanceUnit)}</Text><Text style={styles.statLbl}>Distance</Text></View>}
-              {hike.elevation_ft > 0 && <View style={styles.stat}><Text style={styles.statVal}>{formatElevation(hike.elevation_ft, distanceUnit)}</Text><Text style={styles.statLbl}>Elevation</Text></View>}
+              {hike.elevation_ft != null && <View style={styles.stat}><Text style={styles.statVal}>{formatElevation(hike.elevation_ft, distanceUnit)}</Text><Text style={styles.statLbl}>Elevation</Text></View>}
               {hike.duration_hr != null && hike.duration_hr > 0 && <View style={styles.stat}><Text style={styles.statVal}>{hike.duration_hr.toFixed(1)} hr</Text><Text style={styles.statLbl}>Duration</Text></View>}
             </View>
             {hike.dim_ratings && hike.dim_ratings.length > 0 && (
