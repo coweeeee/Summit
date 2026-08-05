@@ -123,26 +123,33 @@ export default function NotificationsScreen() {
     }
 
     // 2. New followers (accepted only)
-    const { data: followers } = await supabase
-      .from("follows")
-      .select("follower_id, created_at, profiles(full_name, username)")
-      .eq("following_id", session.user.id)
-      .eq("status", "accepted")
-      .order("created_at", { ascending: false })
-      .limit(10);
+    //
+    // Gated before the request, not after it, which is how the likes block
+    // above already works. This one fetched the rows and then discarded them
+    // when the preference was off — a round trip whose result could never be
+    // shown. `followers` is used nowhere else, so the query moves inside.
+    if (notifFollows) {
+      const { data: followers } = await supabase
+        .from("follows")
+        .select("follower_id, created_at, profiles(full_name, username)")
+        .eq("following_id", session.user.id)
+        .eq("status", "accepted")
+        .order("created_at", { ascending: false })
+        .limit(10);
 
-    if (notifFollows && followers) {
-      followers.forEach((f: any) => {
-        const name = displayName(f.profiles);
-        results.push({
-          id: `follow-${f.follower_id}`,
-          icon: "user-plus",
-          color: "#7ab8c8",
-          text: `${name} started following you`,
-          time: timeAgo(f.created_at),
-          sortAt: f.created_at,
+      if (followers) {
+        followers.forEach((f: any) => {
+          const name = displayName(f.profiles);
+          results.push({
+            id: `follow-${f.follower_id}`,
+            icon: "user-plus",
+            color: "#7ab8c8",
+            text: `${name} started following you`,
+            time: timeAgo(f.created_at),
+            sortAt: f.created_at,
+          });
         });
-      });
+      }
     }
 
     // Fetch pending follow requests (always, regardless of notif prefs)
