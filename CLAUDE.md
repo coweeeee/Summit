@@ -84,6 +84,10 @@ This matters because Expo Go silently disabled real features: `react-native-maps
 
 Two `app.json` values are baked into the binary and painful to change later — `scheme`/`slug` are `summit` (they were the generic `mobile`), and `ios.bundleIdentifier`/`android.package` are `com.coweeeee.summit`. Set them before any first build, not after.
 
+**Signing lives in `app.json`, not the Xcode UI.** `ios.appleTeamId` is `6NKUB3U255`. Setting the team in Xcode's Signing & Capabilities editor writes it into `ios/Summit.xcodeproj/project.pbxproj`, which `prebuild --clean` regenerates from a template — so it silently disappears on the next prebuild and the archive fails with `Signing for "Summit" requires a development team`. That already happened once. `appleTeamId` in `app.json` is written into every generated build configuration and survives.
+
+`aps-environment` comes from the `expo-notifications` plugin's `mode`, set to `production`. A prebuild without it emits `development`, which cannot deliver push in a TestFlight or App Store build no matter what else is configured.
+
 **Bump `ios.buildNumber` on every upload to App Store Connect**, including a re-upload of the same `1.0.0` — Apple requires the (version, build) pair to be unique, so the first upload succeeds and the fix-up twenty minutes later is the one that gets rejected. `android.versionCode` is the Play equivalent. Both are set explicitly in `app.json` rather than left to prebuild's invisible default of `1`, so the next person edits a field instead of having to know to add one.
 
 Build numbering is deliberately **local and literal — there is no `eas.json` and remote versioning is not used.** A local `xcodebuild archive` never reads `eas.json`; it reads `CFBundleVersion` from `Info.plist`. Adopting `appVersionSource: "remote"` would produce a counter nothing here consumes plus a literal the Expo docs then tell you to delete. If you ever move to EAS Build, migrate deliberately — `eas build:version:set` to seed the remote counter, then delete the literal in the same commit. Never leave both live.
