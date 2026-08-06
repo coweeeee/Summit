@@ -50,18 +50,19 @@ import {
   async function registerForPushNotificationsInner(userId: string) {
     if (isExpoGo) return;
     if (!Device.isDevice) return;
-    const { status: existing } = await Notifications.getPermissionsAsync();
-    let finalStatus = existing;
-    if (existing !== "granted") {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-    if (finalStatus !== "granted") return;
 
-    // getExpoPushTokenAsync needs the EAS project id and throws without one.
-    // app.json had no extra.eas.projectId, so this would have failed in a real
-    // build too -- not just in Expo Go, where the guard above returns early.
-    // `eas init` writes the id; until then this logs rather than throwing.
+    // Resolve the EAS project id BEFORE asking for permission, not after.
+    // getExpoPushTokenAsync needs it and throws without one, so with no
+    // projectId there is nothing useful to do with a granted permission --
+    // and asking first spends the one-shot iOS permission dialog on a token
+    // that is then never requested. A user who declines, or who accepts and
+    // gets nothing, cannot be asked again except through iOS Settings.
+    //
+    // app.json has no extra.eas.projectId, and easConfig cannot supply one in
+    // a locally built app either, so today this always returns here -- before
+    // the user is ever prompted. `eas init` writes the id. Sequence the Expo
+    // push credentials before adding it: with an id but no credentials this
+    // stops returning early and starts failing at the network call instead.
     const projectId =
       Constants.expoConfig?.extra?.eas?.projectId ??
       (Constants as any).easConfig?.projectId;
@@ -69,6 +70,14 @@ import {
       console.warn("push registration skipped: no EAS projectId in app config");
       return;
     }
+
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    let finalStatus = existing;
+    if (existing !== "granted") {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== "granted") return;
 
     const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
     if (token) {
