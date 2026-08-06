@@ -70,7 +70,10 @@ function SettingsRow({
       ) : (
         <View style={styles.rowRight}>
           {value ? <Text style={styles.rowValue}>{value}</Text> : null}
-          {!danger && <Feather name="chevron-right" size={16} color={Colors.text3} />}
+          {/* Only when the row actually goes somewhere. Version has a value but
+              no onPress, and a chevron on it promises a screen that does not
+              exist. */}
+          {!danger && onPress && <Feather name="chevron-right" size={16} color={Colors.text3} />}
         </View>
       )}
     </Pressable>
