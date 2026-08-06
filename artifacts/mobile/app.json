@@ -15,11 +15,16 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.coweeeee.summit"
+      "bundleIdentifier": "com.coweeeee.summit",
+      "buildNumber": "1",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "backgroundColor": "#0f1a0f",
-      "package": "com.coweeeee.summit"
+      "package": "com.coweeeee.summit",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/images/icon.png"
