@@ -51,7 +51,8 @@
       "reactCompiler": true
     },
     "extra": {
-      "shareBaseUrl": "https://summit-api-server.vercel.app"
+      "shareBaseUrl": "https://summit-api-server.vercel.app",
+      "appStoreId": ""
     }
   }
 }

@@ -1,9 +1,11 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -22,6 +24,7 @@ import { USERNAME_RULE_HINT, isValidUsername, normalizeUsername } from "@/lib/us
 import { uploadImage } from "@/lib/upload";
 import Avatar from "@/components/Avatar";
 import { AVATAR_PRESETS, PRESET_DISC_ALPHA } from "@/lib/avatars";
+import { ratingAvailable, reviewUrl } from "@/lib/rating";
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
@@ -67,7 +70,10 @@ function SettingsRow({
       ) : (
         <View style={styles.rowRight}>
           {value ? <Text style={styles.rowValue}>{value}</Text> : null}
-          {!danger && <Feather name="chevron-right" size={16} color={Colors.text3} />}
+          {/* Only when the row actually goes somewhere. Version has a value but
+              no onPress, and a chevron on it promises a screen that does not
+              exist. */}
+          {!danger && onPress && <Feather name="chevron-right" size={16} color={Colors.text3} />}
         </View>
       )}
     </Pressable>
@@ -441,12 +447,22 @@ export default function SettingsScreen() {
 
         <SectionHeader title="About" />
         <View style={styles.section}>
-          <SettingsRow icon="info" label="Version" value="1.0.0" />
           <SettingsRow
-            icon="star"
-            label="Rate Summit"
-            onPress={() => Alert.alert("Rate Summit", "Thank you! Rating will be available after App Store publish.")}
+            icon="info"
+            label="Version"
+            value={Constants.expoConfig?.version ?? "unknown"}
           />
+          {/* Hidden until app.json has an App Store id -- see lib/rating.ts. */}
+          {ratingAvailable && (
+            <SettingsRow
+              icon="star"
+              label="Rate Summit"
+              onPress={() => {
+                const url = reviewUrl();
+                if (url) Linking.openURL(url);
+              }}
+            />
+          )}
         </View>
 
         <SectionHeader title="Legal" />
