@@ -17,6 +17,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.coweeeee.summit",
       "buildNumber": "1",
+      "appleTeamId": "6NKUB3U255",
       "config": {
         "usesNonExemptEncryption": false
       }
@@ -33,7 +34,12 @@
       "expo-router",
       "expo-font",
       "expo-web-browser",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "mode": "production"
+        }
+      ],
       [
         "expo-image-picker",
         {
