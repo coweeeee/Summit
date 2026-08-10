@@ -111,9 +111,10 @@ import {
   }
 
   function AuthGate() {
-    const { session, loading, networkError, retryAuth } = useAuth();
+    const { session, loading, networkError, retryAuth, termsOutOfDate, acceptCurrentTerms, signOut } = useAuth();
     const segments = useSegments();
     const router = useRouter();
+    const [accepting, setAccepting] = React.useState(false);
 
     useEffect(() => {
       if (loading) return;
@@ -156,6 +157,54 @@ import {
       );
     }
 
+    // Ordered after networkError on purpose: offline, we cannot tell a stale
+    // acceptance from an unread session, and blocking someone behind a prompt
+    // whose Accept button cannot reach the server is worse than letting them
+    // through until the connection returns.
+    if (termsOutOfDate) {
+      return (
+        <View style={gateStyles.container}>
+          <Text style={gateStyles.icon}>📄</Text>
+          <Text style={gateStyles.title}>We've updated our terms</Text>
+          <Text style={gateStyles.sub}>
+            Our Privacy Policy and Terms of Service have changed since you last accepted them. Please
+            review and accept them to keep using Summit.
+          </Text>
+
+          <View style={gateStyles.linkRow}>
+            <Pressable onPress={() => router.push("/privacy-policy")} hitSlop={8}>
+              <Text style={gateStyles.link}>Privacy Policy</Text>
+            </Pressable>
+            <Text style={gateStyles.linkSep}>·</Text>
+            <Pressable onPress={() => router.push("/terms-of-service")} hitSlop={8}>
+              <Text style={gateStyles.link}>Terms of Service</Text>
+            </Pressable>
+          </View>
+
+          <Pressable
+            disabled={accepting}
+            onPress={async () => {
+              setAccepting(true);
+              const ok = await acceptCurrentTerms();
+              // On success the session updates and this gate unmounts, so only
+              // the failure path needs to hand the button back.
+              if (!ok) setAccepting(false);
+            }}
+            style={({ pressed }) => [gateStyles.btn, { opacity: pressed || accepting ? 0.7 : 1 }]}
+          >
+            <Text style={gateStyles.btnText}>{accepting ? "Saving…" : "Accept and continue"}</Text>
+          </Pressable>
+
+          {/* Nobody can be made to agree. Without a way out, declining means
+              being stuck on this screen with no route to deleting the account
+              either -- Settings is behind the gate. */}
+          <Pressable onPress={signOut} hitSlop={8} style={gateStyles.declineWrap}>
+            <Text style={gateStyles.decline}>Sign out instead</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
     return null;
   }
 
@@ -177,6 +226,11 @@ import {
     sub: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3, textAlign: "center", marginBottom: 32 },
     btn: { backgroundColor: Colors.accent, paddingVertical: 14, paddingHorizontal: 40, borderRadius: 12 },
     btnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#fff" },
+    linkRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 28 },
+    link: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.accent, textDecorationLine: "underline" },
+    linkSep: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3 },
+    declineWrap: { marginTop: 20 },
+    decline: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.text3 },
   });
 
   // Not routed through <ErrorBoundary>: a credential-less build fails while
