@@ -233,6 +233,20 @@ export default function LogScreen() {
       if (status !== "granted") { Alert.alert("Permission needed", "Allow photo access to add photos."); return; }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
+        // DO NOT REMOVE without reading this. allowsEditing is load-bearing
+        // privacy behaviour, not a UX preference.
+        //
+        // expo-image-picker chooses its native picker with
+        // `if (!allowsEditing && sourceType != .camera)` -> PHPicker, else
+        // UIImagePickerController (ImagePickerModule.swift:94), and the two
+        // take different data paths. UIImagePickerController re-encodes every
+        // image through `image.jpegData(compressionQuality:)`, which drops EXIF
+        // -- including GPS. PHPicker returns RAW bytes for .heic/.tiff/.avif
+        // with no allowsEditing check at all (ImageUtils.swift:145-150), and
+        // HEIC is the iPhone camera default.
+        //
+        // hike-photos is a public bucket, so dropping allowsEditing would start
+        // publishing users' geotagged originals at unauthenticated URLs.
         allowsEditing: true,
         aspect: [4, 3] as [number, number],
         quality: 0.7,

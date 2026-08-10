@@ -293,6 +293,10 @@ export default function SettingsScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
+        // Load-bearing privacy behaviour, not a UX preference -- see the fuller
+        // note at the same option in app/(tabs)/log.tsx. Removing it switches
+        // expo-image-picker to PHPicker, which returns raw .heic bytes with
+        // EXIF (including GPS) intact instead of re-encoding them away.
         allowsEditing: true,
         aspect: [1, 1] as [number, number],
         quality: 0.7,
