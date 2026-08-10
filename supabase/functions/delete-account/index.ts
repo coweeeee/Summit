@@ -32,10 +32,11 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 //    ever delete the caller's OWN account, never a user_id from the request
 //    body - it does not read the body at all.
 //
-// Known limitation: the storage .list() below is unpaginated, so it removes at
-// most the SDK default of 100 objects per bucket. Both buckets are empty today
-// and the upload path was only fixed recently, so this has never bitten - but a
-// user with more than 100 hike photos would leave files behind on deletion.
+// The storage cleanup pages. An earlier version called .list() once, which
+// storage-js caps at 100 objects, so a user with more than 100 photos kept the
+// remainder - publicly readable, since both buckets are public - after deleting
+// their account. See the loop below for why it re-reads page 0 rather than
+// advancing an offset.
 Deno.serve(async (req) => {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
@@ -63,12 +64,32 @@ Deno.serve(async (req) => {
 
   // Best-effort storage cleanup - don't let a listing/removal hiccup block
   // the actual account deletion, which is the part that matters most.
+  //
+  // This pages. storage-js applies DEFAULT_SEARCH_OPTIONS = { limit: 100 } and
+  // does not paginate on its own, so a single list() removed at most 100 objects
+  // per bucket and silently left the rest. Both buckets are public, so anything
+  // left behind stayed fetchable at its URL after the account was gone - the
+  // opposite of what deleting an account is supposed to mean.
+  //
+  // Each pass re-reads the FIRST page rather than advancing an offset: the pass
+  // deletes what it just read, so the next batch shifts down into offset 0.
+  // Advancing the offset while deleting would step over every other page.
+  const PAGE_SIZE = 100;
+  // Bounded so a remove() that reports success without deleting cannot spin
+  // forever and hold the request open. 100 pages is 10k objects per bucket.
+  const MAX_PAGES = 100;
   for (const bucket of ["avatars", "hike-photos"]) {
     try {
-      const { data: files } = await admin.storage.from(bucket).list(user.id);
-      if (files && files.length > 0) {
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const { data: files, error: listError } = await admin.storage
+          .from(bucket)
+          .list(user.id, { limit: PAGE_SIZE });
+        if (listError || !files || files.length === 0) break;
+
         const paths = files.map((f) => `${user.id}/${f.name}`);
-        await admin.storage.from(bucket).remove(paths);
+        const { error: removeError } = await admin.storage.from(bucket).remove(paths);
+        // Without this the loop would re-read the same undeleted page forever.
+        if (removeError) break;
       }
     } catch (_e) {
       // Non-fatal - proceed to account deletion regardless.
