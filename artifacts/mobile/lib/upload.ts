@@ -52,7 +52,21 @@ export function contentTypeForExt(ext: string): string {
   }
 }
 
-export type UploadResult = { url: string; error: null } | { url: null; error: string };
+/**
+ * Both the storage path and a public URL, because the two buckets differ.
+ *
+ * `avatars` is public, so callers there persist `url` and render it directly.
+ * `hike-photos` is private, so callers there persist `path` and mint a signed
+ * URL at read time (see signedUrlsFor). `url` is meaningless for a private
+ * bucket -- getPublicUrl builds the string happily but it 400s -- so the
+ * private caller must never store it.
+ *
+ * Returning both rather than switching on the bucket keeps this helper honest
+ * about what it did and leaves the choice with the caller that knows.
+ */
+export type UploadResult =
+  | { path: string; url: string; error: null }
+  | { path: null; url: null; error: string };
 
 export async function uploadImage(
   bucket: string,
@@ -61,15 +75,49 @@ export async function uploadImage(
   ext: string
 ): Promise<UploadResult> {
   const bytes = base64ToBytes(base64);
-  if (bytes.length === 0) return { url: null, error: "That image came back empty. Please pick another." };
+  if (bytes.length === 0) return { path: null, url: null, error: "That image came back empty. Please pick another." };
 
   const { error } = await supabase.storage
     .from(bucket)
     .upload(path, bytes, { contentType: contentTypeForExt(ext), upsert: true });
-  if (error) return { url: null, error: error.message };
+  if (error) return { path: null, url: null, error: error.message };
 
   const { data } = supabase.storage.from(bucket).getPublicUrl(path);
   // Cache-bust: the path is stable per user, so a replaced image would
   // otherwise keep rendering from the previously cached URL.
-  return { url: `${data.publicUrl}?t=${Date.now()}`, error: null };
+  return { path, url: `${data.publicUrl}?t=${Date.now()}`, error: null };
+}
+
+/** How long a minted hike-photo URL stays valid, in seconds. */
+export const SIGNED_URL_TTL_SECONDS = 3600;
+
+/**
+ * Signs a batch of hike-photo paths in one request.
+ *
+ * Batched on purpose: a feed page is up to 20 hikes with several photos each,
+ * and createSignedUrl (singular) would be one round trip per photo. Signing is
+ * authorized as `objects.select` against the caller's own JWT, so the storage
+ * SELECT policy -- not this function -- is what actually enforces who may see
+ * whose photos. That is why signing stays on the client rather than moving to
+ * an edge function with the service role, which would bypass the policy and
+ * force the visibility rules to be reimplemented by hand.
+ *
+ * Returns a path -> URL map. Paths the viewer may not read come back as a
+ * per-entry error rather than failing the batch, and are simply omitted: the
+ * surrounding hike is legitimately visible even when one photo is not.
+ */
+export async function signedUrlsFor(paths: string[]): Promise<Record<string, string>> {
+  if (paths.length === 0) return {};
+
+  const { data, error } = await supabase.storage
+    .from("hike-photos")
+    .createSignedUrls(paths, SIGNED_URL_TTL_SECONDS);
+  if (error || !data) return {};
+
+  const map: Record<string, string> = {};
+  for (const entry of data) {
+    if (entry.error || !entry.path || !entry.signedUrl) continue;
+    map[entry.path] = entry.signedUrl;
+  }
+  return map;
 }

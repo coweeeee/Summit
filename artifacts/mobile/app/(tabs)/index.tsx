@@ -25,6 +25,7 @@ import { Feather } from "@expo/vector-icons";
   import ReportModal, { ReportTarget } from "@/components/ReportModal";
   import { showActionSheet } from "@/lib/actionSheet";
   import { shareEntity, sharingAvailable } from "@/lib/share";
+  import { signedUrlsFor } from "@/lib/upload";
 
   const PAGE_SIZE = 20;
   type FeedHike = {
@@ -107,7 +108,7 @@ import { Feather } from "@expo/vector-icons";
       const hikeIds = hikesData.map((h: any) => h.id);
       const [profilesRes, photosRes, commentsRes, likesRes] = await Promise.all([
         supabase.from("profiles").select("id, full_name, username, avatar_url, avatar_preset").in("id", userIds),
-        supabase.from("hike_photos").select("hike_id, photo_url").in("hike_id", hikeIds),
+        supabase.from("hike_photos").select("hike_id, storage_path").in("hike_id", hikeIds),
         supabase.from("comments").select("hike_id").in("hike_id", hikeIds),
         supabase.from("likes").select("hike_id").in("hike_id", hikeIds),
       ]);
@@ -118,10 +119,21 @@ import { Feather } from "@expo/vector-icons";
       // from it too, and displayName() already handles a missing entry.
       const profileMap: Record<string, AvatarProfile> = {};
       if (profilesRes.data) profilesRes.data.forEach((p: any) => { profileMap[p.id] = p; });
+      // hike-photos is a private bucket, so the stored value is a path and has
+      // to be signed before it can be rendered. One batched call for the whole
+      // page rather than one per photo. A path this viewer may not read comes
+      // back as a per-entry error and is dropped here, so an unreadable photo
+      // hides itself without taking its hike down with it.
+      const allPaths = (photosRes.data ?? []).map((p: any) => p.storage_path).filter(Boolean);
+      const signed = await signedUrlsFor(allPaths);
+      // Signing is another suspension point, so re-check the sequence guard.
+      if (seq !== loadSeqRef.current) return null;
       const photoMap: Record<string, string[]> = {};
       if (photosRes.data) photosRes.data.forEach((p: any) => {
+        const signedUrl = signed[p.storage_path];
+        if (!signedUrl) return;
         if (!photoMap[p.hike_id]) photoMap[p.hike_id] = [];
-        photoMap[p.hike_id].push(p.photo_url);
+        photoMap[p.hike_id].push(signedUrl);
       });
       const commentMap: Record<string, number> = {};
       if (commentsRes.data) commentsRes.data.forEach((c: any) => { commentMap[c.hike_id] = (commentMap[c.hike_id] || 0) + 1; });
