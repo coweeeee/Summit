@@ -28,6 +28,7 @@ import { Feather } from "@expo/vector-icons";
   import SteepnessScale from "@/components/SteepnessScale";
   import { showActionSheet } from "@/lib/actionSheet";
   import { shareEntity, sharingAvailable } from "@/lib/share";
+  import { signedUrlsFor } from "@/lib/upload";
 
   type HikeDetail = {
     id: string; trail_name: string; location: string; distance_mi: number;
@@ -50,7 +51,12 @@ import { Feather } from "@expo/vector-icons";
     const distanceUnit = profile?.distance_unit ?? "imperial";
 
     const [hike, setHike] = useState<HikeDetail | null>(null);
+    // Two lists, deliberately. `photos` holds signed URLs, which expire and are
+    // good for nothing but rendering; `photoPaths` holds the storage paths,
+    // which is what remove() takes when the hike is deleted. Deriving the path
+    // from the URL is what the old code did, by string-splitting a public URL.
     const [photos, setPhotos] = useState<string[]>([]);
+    const [photoPaths, setPhotoPaths] = useState<string[]>([]);
     const [comments, setComments] = useState<Comment[]>([]);
     const [likeCount, setLikeCount] = useState(0);
     const [isLiked, setIsLiked] = useState(false);
@@ -86,7 +92,7 @@ import { Feather } from "@expo/vector-icons";
       const load = async () => {
         const [hikeRes, photosRes, commentsRes, likesRes] = await Promise.all([
           supabase.from("hikes").select("*, dim_ratings(*)").eq("id", id).single(),
-          supabase.from("hike_photos").select("photo_url").eq("hike_id", id),
+          supabase.from("hike_photos").select("storage_path").eq("hike_id", id),
           supabase.from("comments").select("*").eq("hike_id", id).order("created_at", { ascending: true }),
           supabase.from("likes").select("user_id").eq("hike_id", id),
         ]);
@@ -97,7 +103,14 @@ import { Feather } from "@expo/vector-icons";
           if (profile) setHikerName(displayName(profile));
         }
 
-        if (photosRes.data) setPhotos(photosRes.data.map((p: any) => p.photo_url));
+        if (photosRes.data) {
+          const paths = photosRes.data.map((p: any) => p.storage_path).filter(Boolean);
+          setPhotoPaths(paths);
+          // Signed in one batch. Anything this viewer may not read comes back
+          // as a per-entry error and is dropped rather than rendering broken.
+          const signed = await signedUrlsFor(paths);
+          setPhotos(paths.map((p: string) => signed[p]).filter(Boolean));
+        }
         setLikeCount(likesRes.data?.length || 0);
         if (session) setIsLiked(likesRes.data?.some((l: any) => l.user_id === session.user.id) || false);
 
@@ -186,14 +199,17 @@ import { Feather } from "@expo/vector-icons";
     const deleteHike = async () => {
       if (!session) return;
       setDeleting(true);
-      // comments, likes, dim_ratings, hike_photos and reports all cascade off
-      // the hike's FK. Storage objects don't, and the rows recording their URLs
-      // are about to disappear, so clear those first.
-      const paths = photos
-        .map(url => url.split("/hike-photos/")[1])
-        .filter(Boolean)
-        .map(p => decodeURIComponent(p.split("?")[0]));
-      if (paths.length > 0) await supabase.storage.from("hike-photos").remove(paths);
+      // comments, likes, dim_ratings and hike_photos cascade off the hike's FK;
+      // reports do not -- reports_hike_id_fkey is ON DELETE SET NULL, so a
+      // report about this hike survives with its snapshot intact. Storage
+      // objects don't cascade either, and the rows recording their paths are
+      // about to disappear, so clear those first.
+      //
+      // Uses the stored paths directly. This used to string-split them back out
+      // of a public URL, which silently produced an empty list the moment the
+      // stored value stopped being a URL -- removing nothing and orphaning every
+      // object, with no error anywhere.
+      if (photoPaths.length > 0) await supabase.storage.from("hike-photos").remove(photoPaths);
 
       const { error } = await supabase.from("hikes").delete().eq("id", id);
       setDeleting(false);

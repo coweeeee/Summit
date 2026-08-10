@@ -286,11 +286,15 @@ export default function LogScreen() {
         if (!photo.base64) { failed++; continue; }
         const ext = photo.uri.split(".").pop() || "jpg";
         const fileName = `${session.user.id}/${hikeId}_${i}.${ext}`;
-        const { url, error } = await uploadImage("hike-photos", fileName, photo.base64, ext);
-        if (error || !url) { failed++; continue; }
+        const { path, error } = await uploadImage("hike-photos", fileName, photo.base64, ext);
+        if (error || !path) { failed++; continue; }
+        // The PATH, not a URL. hike-photos is a private bucket, so a public URL
+        // would be a permanently dead link -- and a stored path is also what
+        // createSignedUrls and storage.remove() both take, which is why the
+        // delete path in hike-detail.tsx no longer has to parse it back out.
         const { error: rowError } = await supabase
           .from("hike_photos")
-          .insert({ hike_id: hikeId, user_id: session.user.id, photo_url: url });
+          .insert({ hike_id: hikeId, user_id: session.user.id, storage_path: path });
         if (rowError) failed++;
       } catch (_) {
         failed++;
