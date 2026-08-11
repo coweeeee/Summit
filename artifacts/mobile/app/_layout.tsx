@@ -15,9 +15,17 @@ import {
   import { GestureHandlerRootView } from "react-native-gesture-handler";
   import { KeyboardProvider } from "react-native-keyboard-controller";
   import { SafeAreaProvider } from "react-native-safe-area-context";
-  import { Platform, Text, View, Pressable, StyleSheet } from "react-native";
+  import { Alert, Platform, Text, View, Pressable, StyleSheet } from "react-native";
+
+  import * as Linking from "expo-linking";
 
   import { ErrorBoundary } from "@/components/ErrorBoundary";
+  // Deliberately NOT under app/. Anything in app/ becomes a route, and
+  // `summit://reset-password` would then navigate straight to it, skipping the
+  // recoveryMode gate below -- which for a normally signed-in user means a
+  // screen that changes their password without asking for the old one.
+  import ResetPasswordGate from "@/components/ResetPasswordGate";
+  import { parseRecoveryLink } from "@/lib/passwordReset";
   import { AuthProvider, useAuth } from "@/context/AuthContext";
   import { HikesProvider } from "@/context/HikesContext";
   import Colors from "@/constants/colors";
@@ -111,7 +119,8 @@ import {
   }
 
   function AuthGate() {
-    const { session, loading, networkError, retryAuth, termsOutOfDate, acceptCurrentTerms, signOut } = useAuth();
+    const { session, loading, networkError, retryAuth, termsOutOfDate, acceptCurrentTerms, signOut,
+            recoveryMode, beginRecovery } = useAuth();
     const segments = useSegments();
     const router = useRouter();
     const [accepting, setAccepting] = React.useState(false);
@@ -128,6 +137,36 @@ import {
     useEffect(() => {
       if (session?.user.id) registerForPushNotifications(session.user.id);
     }, [session?.user.id]);
+
+    // Password recovery links. lib/supabase.ts sets detectSessionInUrl:false
+    // (correct for React Native -- there is no browser URL to read), so nothing
+    // picks the tokens out of the deep link automatically and this has to.
+    //
+    // Both entry points are needed: getInitialURL for a cold start, where the
+    // link launched the app, and the listener for a warm one, where the app was
+    // already backgrounded. Handling only the listener is the classic version
+    // of this bug -- it works every time you test it with the app open, and
+    // never for the user tapping the link from their mail app.
+    useEffect(() => {
+      let cancelled = false;
+
+      const handle = async (url: string | null) => {
+        if (!url || cancelled) return;
+        const link = parseRecoveryLink(url);
+        if (link.kind === "recovery") {
+          await beginRecovery(link.accessToken, link.refreshToken);
+        } else if (link.kind === "error") {
+          Alert.alert("Reset link problem", link.message);
+        }
+      };
+
+      Linking.getInitialURL().then(handle);
+      const sub = Linking.addEventListener("url", (event) => handle(event.url));
+      return () => {
+        cancelled = true;
+        sub.remove();
+      };
+    }, []);
 
     useEffect(() => {
       if (Platform.OS === "web") return;
@@ -156,6 +195,12 @@ import {
         </View>
       );
     }
+
+    // Ahead of the terms gate and the navigator both. A recovery link creates a
+    // real session, so without this the user lands inside the app already
+    // signed in and is never asked to set anything -- signed in, in fact,
+    // without having proved they know any password at all.
+    if (recoveryMode) return <ResetPasswordGate />;
 
     // Ordered after networkError on purpose: offline, we cannot tell a stale
     // acceptance from an unread session, and blocking someone behind a prompt
@@ -272,6 +317,7 @@ import {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="signup" options={{ headerShown: false }} />
+          <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
           <Stack.Screen name="notifications" options={{ headerShown: false, presentation: "modal" }} />
           <Stack.Screen name="settings" options={{ headerShown: false, presentation: "modal" }} />
           <Stack.Screen name="blocked-users" options={{ headerShown: false }} />
