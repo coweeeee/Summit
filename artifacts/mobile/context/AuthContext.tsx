@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
   import AsyncStorage from '@react-native-async-storage/async-storage'
   import { Session } from '@supabase/supabase-js'
+  import * as Linking from 'expo-linking'
   import { Alert } from 'react-native'
   import { supabase } from '@/lib/supabase'
   import { LEGAL_TERMS_VERSION } from '@/constants/legal'
@@ -38,6 +39,17 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     /** Signed in, but has not accepted the current LEGAL_TERMS_VERSION. */
     termsOutOfDate: boolean
     acceptCurrentTerms: () => Promise<boolean>
+    /** Emails a recovery link. Resolves true if the request itself succeeded. */
+    sendPasswordReset: (email: string) => Promise<boolean>
+    /**
+     * True while a recovery link has put the app in a session that exists only
+     * to set a new password. The app must not behave as normally signed in.
+     */
+    recoveryMode: boolean
+    beginRecovery: (accessToken: string, refreshToken: string) => Promise<boolean>
+    /** Sets the new password and leaves recovery mode. */
+    completeRecovery: (newPassword: string) => Promise<boolean>
+    cancelRecovery: () => Promise<void>
   }
 
   const AuthContext = createContext<AuthContextType>({} as AuthContextType)
@@ -83,6 +95,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     const [profile, setProfile] = useState<Profile | null>(null)
     const [loading, setLoading] = useState(true)
     const [networkError, setNetworkError] = useState(false)
+    const [recoveryMode, setRecoveryMode] = useState(false)
     const [retryKey, setRetryKey] = useState(0)
 
     // Returns whether the profile actually loaded. A silent failure here used to
@@ -289,6 +302,62 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
       if (session) await fetchProfile(session.user.id)
     }
 
+    const sendPasswordReset = async (email: string): Promise<boolean> => {
+      // Points at /login, which is a real route, NOT at /reset-password, which
+      // deliberately is not one -- the reset screen lives in components/ so it
+      // cannot be opened by URL. Sending the link to a path with no route makes
+      // expo-router show its "Oops!" unmatched screen behind the alert. The
+      // path is only a landing spot; what matters is the fragment, which the
+      // listener in _layout.tsx reads to start recovery.
+      //
+      // createURL rather than a hardcoded "summit://": a dev client resolves to
+      // exp+summit://, and a link built for the wrong scheme opens nothing.
+      // Both forms have to be allow-listed as Supabase redirect URLs.
+      const redirectTo = Linking.createURL('/login')
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
+      if (error) {
+        // Deliberately not surfaced to the caller as "no such account" -- see
+        // the screen, which reports the same thing either way so this cannot be
+        // used to test whether an address is registered.
+        console.warn('password reset request failed', error.message)
+        return false
+      }
+      return true
+    }
+
+    const beginRecovery = async (accessToken: string, refreshToken: string): Promise<boolean> => {
+      const { error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      })
+      if (error) {
+        Alert.alert('Link expired', 'That reset link is no longer valid. Please request a new one.')
+        return false
+      }
+      setRecoveryMode(true)
+      return true
+    }
+
+    const completeRecovery = async (newPassword: string): Promise<boolean> => {
+      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      if (error) {
+        Alert.alert('Could not set password', error.message)
+        return false
+      }
+      // Cleared only after the update succeeds. Clearing first would drop the
+      // user into the app on a recovery session with the old password intact.
+      setRecoveryMode(false)
+      return true
+    }
+
+    const cancelRecovery = async () => {
+      // Sign out rather than just lowering the flag: the recovery session is a
+      // real session, and leaving it live would mean backing out of the reset
+      // screen lands you inside the account without ever proving the password.
+      setRecoveryMode(false)
+      await supabase.auth.signOut()
+    }
+
     // Only meaningful once a session exists -- a signed-out user is heading to
     // the signup screen, which collects acceptance on its own.
     const termsOutOfDate = !!session && needsReacceptance(acceptedVersionFrom(session.user.user_metadata))
@@ -314,7 +383,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     }
 
     return (
-      <AuthContext.Provider value={{ session, profile, loading, networkError, signInWithIdentifier, signUp, claimUsername, signOut, refreshProfile, retryAuth, termsOutOfDate, acceptCurrentTerms }}>
+      <AuthContext.Provider value={{ session, profile, loading, networkError, signInWithIdentifier, signUp, claimUsername, signOut, refreshProfile, retryAuth, termsOutOfDate, acceptCurrentTerms, sendPasswordReset, recoveryMode, beginRecovery, completeRecovery, cancelRecovery }}>
         {children}
       </AuthContext.Provider>
     )
