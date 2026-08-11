@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
   import { Alert } from 'react-native'
   import { supabase } from '@/lib/supabase'
   import { LEGAL_TERMS_VERSION } from '@/constants/legal'
+  import { acceptedVersionFrom, needsReacceptance } from '@/lib/legalAcceptance'
   import { isValidUsername, normalizeUsername } from '@/lib/username'
 
   export type Profile = {
@@ -34,6 +35,9 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
     signOut: () => Promise<void>
     refreshProfile: () => Promise<void>
     retryAuth: () => void
+    /** Signed in, but has not accepted the current LEGAL_TERMS_VERSION. */
+    termsOutOfDate: boolean
+    acceptCurrentTerms: () => Promise<boolean>
   }
 
   const AuthContext = createContext<AuthContextType>({} as AuthContextType)
@@ -285,8 +289,32 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
       if (session) await fetchProfile(session.user.id)
     }
 
+    // Only meaningful once a session exists -- a signed-out user is heading to
+    // the signup screen, which collects acceptance on its own.
+    const termsOutOfDate = !!session && needsReacceptance(acceptedVersionFrom(session.user.user_metadata))
+
+    const acceptCurrentTerms = async (): Promise<boolean> => {
+      if (!session) return false
+      // Writes to auth user metadata, the same place signUp records it -- see
+      // lib/legalAcceptance.ts for why that is the store and what it is not.
+      // updateUser emits USER_UPDATED, which the onAuthStateChange listener
+      // above turns into a fresh session, so termsOutOfDate recomputes without
+      // any extra refresh here.
+      const { error } = await supabase.auth.updateUser({
+        data: {
+          terms_version: LEGAL_TERMS_VERSION,
+          terms_accepted_at: new Date().toISOString(),
+        },
+      })
+      if (error) {
+        Alert.alert('Could not save', 'We could not record your acceptance. Please try again.')
+        return false
+      }
+      return true
+    }
+
     return (
-      <AuthContext.Provider value={{ session, profile, loading, networkError, signInWithIdentifier, signUp, claimUsername, signOut, refreshProfile, retryAuth }}>
+      <AuthContext.Provider value={{ session, profile, loading, networkError, signInWithIdentifier, signUp, claimUsername, signOut, refreshProfile, retryAuth, termsOutOfDate, acceptCurrentTerms }}>
         {children}
       </AuthContext.Provider>
     )
