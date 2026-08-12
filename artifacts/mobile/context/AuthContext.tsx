@@ -318,22 +318,21 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
       // registered in Info.plist by the expo-dev-client plugin for the LAUNCHER
       // url only, and Release excludes the dev client entirely -- it does not
       // need allow-listing and never did.
-      // EMITS `summit:///login` -- THREE slashes. Verified by logging the real
-      // call in a dev client (hostUri was 127.0.0.1:8081 and is not used, since
-      // a custom scheme is set). This exact string has to be allow-listed in
-      // Supabase Auth > URL Configuration > Redirect URLs.
+      // Emits `summit://login`, which must be covered by an entry in Supabase
+      // Auth > URL Configuration > Redirect URLs -- `summit://**` covers it.
+      // NO LEADING SLASH. This is the whole bug, and it is one character.
+      //   createURL('/login') -> summit:///login   (empty host, path /login)
+      //   createURL('login')  -> summit://login    (host `login`, no path)
+      // Both verified by logging the real call in a dev client.
       //
-      // `summit://login` is NOT the same URL: there `login` is the HOST and the
-      // path is empty, whereas here the host is empty and the path is `/login`.
-      // Allow-listing only the two-slash form makes Supabase treat the redirect
-      // as unlisted and silently fall back to Site URL -- which, on a default
-      // project, is a localhost placeholder, so the emailed link opens a browser
-      // to a dead address and never reaches the app. That is the bug this
-      // comment exists to stop someone reintroducing.
-      //
-      // Prefer a wildcard (`summit://**`) in the allow-list so the shape can
-      // drift without breaking recovery again.
-      const redirectTo = Linking.createURL('/login')
+      // Supabase documents the callback shape as [SCHEME]://[HOSTNAME] and the
+      // recommended allow-list entry as `scheme://**`, where the `**` sits in
+      // the HOST position. `summit:///login` has no host for that `**` to match
+      // and carries a path the pattern does not, so it never matches -- and an
+      // unlisted redirect is silently discarded in favour of Site URL. The
+      // symptom is an emailed link that opens a browser at the Site URL with a
+      // perfectly valid recovery fragment attached, having never reached the app.
+      const redirectTo = Linking.createURL('login')
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
       if (error) {
         // Deliberately not surfaced to the caller as "no such account" -- see
