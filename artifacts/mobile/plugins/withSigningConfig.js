@@ -3,24 +3,27 @@ const { withXcodeProject } = require("@expo/config-plugins");
 /**
  * Fixes the signing settings the Expo iOS template writes, at the config source.
  *
- * THE BUG THIS EXISTS FOR. The template writes, at PROJECT level, for BOTH
+ * WHAT THIS DOES. The Expo iOS template writes, at PROJECT level, for BOTH
  * configurations including Release:
  *
  *   "CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
  *
- * and never writes CODE_SIGN_STYLE at all. "iPhone Developer" is the legacy
- * name for an Apple *Development* certificate. With that pinned on Release,
- * Product > Archive asks Apple to provision a DEVELOPMENT profile rather than a
- * distribution one -- and development profiles are tied to registered device
- * UDIDs, which is why an archive on a team with no registered devices fails
- * with "Your team has no devices from which to generate a provisioning
- * profile", followed by "No profiles for 'com.coweeeee.summit' were found".
- * Both errors are downstream of asking for the wrong profile type.
+ * and never writes CODE_SIGN_STYLE at all. This plugin sets the style to
+ * Automatic and removes the pinned identity, which is the combination Xcode
+ * expects: with automatic signing it resolves the identity itself from the
+ * build action, and any explicitly specified value is treated as a manual
+ * override that conflicts with that resolution.
  *
- * Setting CODE_SIGN_STYLE explicitly also covers the other candidate cause: with
- * it unset, whether Xcode treats signing as Automatic is left to defaults, and
- * `xcodebuild` reported "Automatic signing is disabled" on the CLI attempt.
- * Writing both makes the fix correct regardless of which of the two it was.
+ * WHAT THIS DOES NOT FIX, so nobody re-litigates it here. Archiving also failed
+ * with "Your team has no devices from which to generate a provisioning
+ * profile". That is not a build-settings problem: an automatic archive is
+ * signed for DEVELOPMENT (the distribution certificate is applied later, when
+ * the archive is exported via Distribute App), and Apple would not mint a
+ * development profile for a team with zero registered devices. The fix for that
+ * is registering one device on the team, not anything in this file. An earlier
+ * revision of this plugin tried to route around it by pinning the Release
+ * identity to "Apple Distribution", which produced the conflicting-settings
+ * error instead -- masking the real blocker rather than removing it.
  *
  * WHY A PLUGIN AND NOT THE XCODE UI. ios/ is gitignored and regenerated: every
  * `expo prebuild` rewrites project.pbxproj from the template, so anything set
@@ -40,25 +43,26 @@ module.exports = function withSigningConfig(config) {
       if (!entry || typeof entry !== "object" || !entry.buildSettings) continue;
 
       const settings = entry.buildSettings;
-      const isRelease = entry.name === "Release";
 
       // Automatic on both, so Xcode provisions rather than demanding a
       // hand-managed profile.
       settings.CODE_SIGN_STYLE = "Automatic";
 
-      // Only rewrite the identity where the template actually pinned one --
-      // adding it to configurations that never had it would be a change this
-      // plugin has no reason to make.
-      if ('"CODE_SIGN_IDENTITY[sdk=iphoneos*]"' in settings) {
-        settings['"CODE_SIGN_IDENTITY[sdk=iphoneos*]"'] = isRelease
-          ? '"Apple Distribution"'
-          : '"Apple Development"';
-      }
-      if ("CODE_SIGN_IDENTITY[sdk=iphoneos*]" in settings) {
-        settings["CODE_SIGN_IDENTITY[sdk=iphoneos*]"] = isRelease
-          ? '"Apple Distribution"'
-          : '"Apple Development"';
-      }
+      // REMOVE the pinned identity rather than replace it. Under automatic
+      // signing Xcode decides the identity itself from the build action, and an
+      // explicitly specified one is treated as a MANUAL override that
+      // contradicts it -- "Summit is automatically signed for development, but a
+      // conflicting code signing identity Apple Distribution has been manually
+      // specified."
+      //
+      // Setting it to "Apple Distribution" for Release looks right and is not:
+      // an automatic archive is signed for DEVELOPMENT, and the distribution
+      // certificate is applied later, when the archive is exported through
+      // Distribute App. There is no point in the flow where the build itself
+      // should carry a distribution identity.
+      delete settings['"CODE_SIGN_IDENTITY[sdk=iphoneos*]"'];
+      delete settings["CODE_SIGN_IDENTITY[sdk=iphoneos*]"];
+      delete settings.CODE_SIGN_IDENTITY;
     }
 
     return cfg;
