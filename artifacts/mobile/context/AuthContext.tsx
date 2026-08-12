@@ -310,9 +310,29 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
       // path is only a landing spot; what matters is the fragment, which the
       // listener in _layout.tsx reads to start recovery.
       //
-      // createURL rather than a hardcoded "summit://": a dev client resolves to
-      // exp+summit://, and a link built for the wrong scheme opens nothing.
-      // Both forms have to be allow-listed as Supabase redirect URLs.
+      // Only the `summit://` scheme is ever produced here, including in a dev
+      // client. Verified rather than assumed: expo-linking contains no `exp+`
+      // construction anywhere, resolveScheme returns app.json's `scheme`
+      // ('summit'), and an instrumented run in the dev client emitted
+      // `summit:///login` with hostUri present but unused. `exp+summit://` is
+      // registered in Info.plist by the expo-dev-client plugin for the LAUNCHER
+      // url only, and Release excludes the dev client entirely -- it does not
+      // need allow-listing and never did.
+      // EMITS `summit:///login` -- THREE slashes. Verified by logging the real
+      // call in a dev client (hostUri was 127.0.0.1:8081 and is not used, since
+      // a custom scheme is set). This exact string has to be allow-listed in
+      // Supabase Auth > URL Configuration > Redirect URLs.
+      //
+      // `summit://login` is NOT the same URL: there `login` is the HOST and the
+      // path is empty, whereas here the host is empty and the path is `/login`.
+      // Allow-listing only the two-slash form makes Supabase treat the redirect
+      // as unlisted and silently fall back to Site URL -- which, on a default
+      // project, is a localhost placeholder, so the emailed link opens a browser
+      // to a dead address and never reaches the app. That is the bug this
+      // comment exists to stop someone reintroducing.
+      //
+      // Prefer a wildcard (`summit://**`) in the allow-list so the shape can
+      // drift without breaking recovery again.
       const redirectTo = Linking.createURL('/login')
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
       if (error) {
