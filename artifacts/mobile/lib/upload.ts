@@ -88,6 +88,39 @@ export async function uploadImage(
   return { path, url: `${data.publicUrl}?t=${Date.now()}`, error: null };
 }
 
+/**
+ * Deletes the caller's own avatar objects, optionally keeping one path.
+ *
+ * Necessary because `avatars` is a PUBLIC bucket: clearing profiles.avatar_url
+ * hides the picture in the app but leaves the file readable forever at a stable,
+ * guessable, unauthenticated URL -- and share-preview keeps republishing it to
+ * the open web. "Remove my profile picture" has to mean the file, not the row.
+ *
+ * Lists the folder rather than deriving one path from avatar_url. The filename
+ * carries the source extension, so someone who uploaded a .jpg and later a .png
+ * has two objects and only the newer one is discoverable from the column --
+ * deriving a single path is exactly how the stale one survives.
+ *
+ * Best-effort: a storage failure must not block the profile update, or choosing
+ * a preset icon starts failing for a reason the user cannot act on. The
+ * `moderate` edge function can clean up anything left behind.
+ */
+export async function clearAvatarObjects(userId: string, keepPath?: string): Promise<void> {
+  try {
+    const { data: files, error } = await supabase.storage.from("avatars").list(userId, { limit: 100 });
+    if (error || !files || files.length === 0) return;
+
+    const paths = files
+      .map((f) => `${userId}/${f.name}`)
+      .filter((p) => p !== keepPath);
+    if (paths.length === 0) return;
+
+    await supabase.storage.from("avatars").remove(paths);
+  } catch (_e) {
+    // Deliberately swallowed -- see above.
+  }
+}
+
 /** How long a minted hike-photo URL stays valid, in seconds. */
 export const SIGNED_URL_TTL_SECONDS = 3600;
 

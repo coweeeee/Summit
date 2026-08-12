@@ -21,7 +21,7 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { USERNAME_RULE_HINT, isValidUsername, normalizeUsername } from "@/lib/username";
-import { uploadImage } from "@/lib/upload";
+import { clearAvatarObjects, uploadImage } from "@/lib/upload";
 import Avatar from "@/components/Avatar";
 import { AVATAR_PRESETS, PRESET_DISC_ALPHA } from "@/lib/avatars";
 import { ratingAvailable, reviewUrl } from "@/lib/rating";
@@ -330,6 +330,10 @@ export default function SettingsScreen() {
       // Clearing the preset is what makes the two mutually exclusive, so a row
       // never carries both a photo and an icon for <Avatar> to choose between.
       await supabase.from("profiles").update({ avatar_url: avatarUrl, avatar_preset: null }).eq("id", profile.id);
+      // Sweep any earlier avatar with a different extension. upsert only
+      // overwrites the identical path, so a .jpg replaced by a .png leaves the
+      // .jpg live and publicly readable with nothing pointing at it.
+      await clearAvatarObjects(profile.id, fileName);
       await refreshProfile();
       setAvatarLoading(false);
       setShowAvatarModal(false);
@@ -349,6 +353,11 @@ export default function SettingsScreen() {
     if (!profile || avatarLoading) return;
     setAvatarLoading(true);
     const { error } = await supabase.from("profiles").update(next).eq("id", profile.id);
+    // Dropping the photo has to delete the FILE, not just the column. avatars is
+    // a public bucket, so a cleared-but-not-deleted avatar stays readable at a
+    // stable unauthenticated URL and share-preview keeps republishing it -- the
+    // user has been told the picture is gone and it is not.
+    if (!error && next.avatar_url === null) await clearAvatarObjects(profile.id);
     setAvatarLoading(false);
     if (error) { Alert.alert("Could not save", error.message); return; }
     await refreshProfile();
