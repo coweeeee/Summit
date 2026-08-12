@@ -89,33 +89,44 @@ export async function uploadImage(
 }
 
 /**
- * Deletes the caller's own avatar objects, optionally keeping one path.
+ * The one and only storage path for a user's avatar.
+ *
+ * Deliberately extensionless and fixed. It used to be `avatar.${ext}`, which
+ * meant a .jpg later replaced by a .png left TWO objects with only the newer
+ * one discoverable from profiles.avatar_url -- and since `avatars` is a public
+ * bucket, the stale one stayed readable at an unauthenticated URL forever with
+ * nothing pointing at it. One fixed path makes that unrepresentable rather than
+ * something cleanup has to chase. The content type is carried by the upload's
+ * contentType, not by the filename, so dropping the extension costs nothing.
+ */
+export function avatarPathFor(userId: string): string {
+  return `${userId}/avatar`;
+}
+
+/**
+ * Deletes the caller's own avatar object.
  *
  * Necessary because `avatars` is a PUBLIC bucket: clearing profiles.avatar_url
- * hides the picture in the app but leaves the file readable forever at a stable,
- * guessable, unauthenticated URL -- and share-preview keeps republishing it to
- * the open web. "Remove my profile picture" has to mean the file, not the row.
+ * hides the picture in the app but leaves the file readable at a stable,
+ * guessable, unauthenticated URL -- and share-preview keeps republishing it.
+ * "Remove my profile picture" has to mean the file, not the row.
  *
- * Lists the folder rather than deriving one path from avatar_url. The filename
- * carries the source extension, so someone who uploaded a .jpg and later a .png
- * has two objects and only the newer one is discoverable from the column --
- * deriving a single path is exactly how the stale one survives.
+ * Removes a known path rather than listing the folder first. Listing does not
+ * work here: storage.objects has exactly one SELECT policy and it is scoped to
+ * `bucket_id = 'hike-photos'`, so a list() on `avatars` under the user's own JWT
+ * is RLS-filtered to empty and returns {data: [], error: null}. A list-then-
+ * remove implementation reads that as "nothing to delete", returns cleanly, and
+ * silently leaves the public file live -- while testing clean through the
+ * service-role path, which bypasses RLS. remove() needs only the DELETE policy,
+ * which does exist and is correctly owner-scoped.
  *
  * Best-effort: a storage failure must not block the profile update, or choosing
  * a preset icon starts failing for a reason the user cannot act on. The
- * `moderate` edge function can clean up anything left behind.
+ * `moderate` edge function sweeps the whole folder as a backstop.
  */
-export async function clearAvatarObjects(userId: string, keepPath?: string): Promise<void> {
+export async function clearAvatarObjects(userId: string): Promise<void> {
   try {
-    const { data: files, error } = await supabase.storage.from("avatars").list(userId, { limit: 100 });
-    if (error || !files || files.length === 0) return;
-
-    const paths = files
-      .map((f) => `${userId}/${f.name}`)
-      .filter((p) => p !== keepPath);
-    if (paths.length === 0) return;
-
-    await supabase.storage.from("avatars").remove(paths);
+    await supabase.storage.from("avatars").remove([avatarPathFor(userId)]);
   } catch (_e) {
     // Deliberately swallowed -- see above.
   }

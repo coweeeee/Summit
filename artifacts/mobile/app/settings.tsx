@@ -21,7 +21,7 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { USERNAME_RULE_HINT, isValidUsername, normalizeUsername } from "@/lib/username";
-import { clearAvatarObjects, uploadImage } from "@/lib/upload";
+import { avatarPathFor, clearAvatarObjects, uploadImage } from "@/lib/upload";
 import Avatar from "@/components/Avatar";
 import { AVATAR_PRESETS, PRESET_DISC_ALPHA } from "@/lib/avatars";
 import { ratingAvailable, reviewUrl } from "@/lib/rating";
@@ -315,7 +315,9 @@ export default function SettingsScreen() {
         return;
       }
       const ext = asset.uri.split(".").pop() || "jpg";
-      const fileName = `${profile.id}/avatar.${ext}`;
+      // Extensionless and fixed -- see avatarPathFor. The extension still drives
+      // the content type; it just no longer multiplies the objects.
+      const fileName = avatarPathFor(profile.id);
 
       const { url: avatarUrl, error: uploadError } = await uploadImage(
         "avatars", fileName, asset.base64, ext
@@ -330,10 +332,6 @@ export default function SettingsScreen() {
       // Clearing the preset is what makes the two mutually exclusive, so a row
       // never carries both a photo and an icon for <Avatar> to choose between.
       await supabase.from("profiles").update({ avatar_url: avatarUrl, avatar_preset: null }).eq("id", profile.id);
-      // Sweep any earlier avatar with a different extension. upsert only
-      // overwrites the identical path, so a .jpg replaced by a .png leaves the
-      // .jpg live and publicly readable with nothing pointing at it.
-      await clearAvatarObjects(profile.id, fileName);
       await refreshProfile();
       setAvatarLoading(false);
       setShowAvatarModal(false);

@@ -83,16 +83,31 @@ async function removePaths(
   admin: ReturnType<typeof createClient>,
   bucket: string,
   paths: string[],
-): Promise<number> {
-  if (paths.length === 0) return 0;
+): Promise<{ removed: number; failed: string[] }> {
+  if (paths.length === 0) return { removed: 0, failed: [] };
   let removed = 0;
+  const failed: string[] = [];
   for (let i = 0; i < paths.length; i += 100) {
     const batch = paths.slice(i, i + 100);
-    const { error } = await admin.storage.from(bucket).remove(batch);
-    if (error) break;
-    removed += batch.length;
+    const { data, error } = await admin.storage.from(bucket).remove(batch);
+    if (error) {
+      // Continue rather than break: one bad batch must not abandon the rest.
+      // Breaking here was worse than it looks -- delete_hike has already
+      // dropped the rows that recorded these paths, so anything skipped can
+      // never be enumerated again.
+      failed.push(...batch);
+      continue;
+    }
+    // Counted from what remove() actually reports deleting, not from
+    // batch.length. Asserting the input size reports success for objects that
+    // were never there.
+    removed += data?.length ?? 0;
+    if ((data?.length ?? 0) < batch.length) {
+      const got = new Set((data ?? []).map((o: { name: string }) => o.name));
+      failed.push(...batch.filter((p) => !got.has(p)));
+    }
   }
-  return removed;
+  return { removed, failed };
 }
 
 /**
@@ -177,17 +192,31 @@ Deno.serve(async (req) => {
           .eq("hike_id", id);
         const paths = (photos ?? []).map((p: { storage_path: string }) => p.storage_path).filter(Boolean);
 
-        const { error } = await admin.from("hikes").delete().eq("id", id);
+        // .select() so the deleted rows come back. A DELETE matching zero rows
+        // is NOT an error in PostgREST -- without this, a mistyped id returns
+        // ok:true and writes "hike <id> deleted" into the audit channel while
+        // the reported content is still live.
+        const { data: deleted, error } = await admin.from("hikes").delete().eq("id", id).select("id");
         if (error) return json({ error: error.message }, 400);
+        if (!deleted || deleted.length === 0) return json({ error: "No such hike" }, 404);
 
-        const removed = await removePaths(admin, "hike-photos", paths);
+        const { removed, failed } = await removePaths(admin, "hike-photos", paths);
         detail.push(`hike ${id} deleted`, `${removed}/${paths.length} photo objects removed`);
+        if (failed.length > 0) {
+          // Loud, and a non-2xx, because the hike row is already gone: nothing
+          // records these paths any more, so they cannot be retried from the
+          // database. This is the one outcome an operator must not skim past.
+          detail.push(`STORAGE NOT FULLY REMOVED -- orphaned: ${failed.join(", ")}`);
+          await notify([`**Moderation action: delete_hike (PARTIAL)**`, ...detail.map((d) => `- ${sanitizeForChat(d)}`)]);
+          return json({ ok: false, action, id, detail, orphanedPaths: failed }, 500);
+        }
         break;
       }
 
       case "delete_comment": {
-        const { error } = await admin.from("comments").delete().eq("id", id);
+        const { data: deleted, error } = await admin.from("comments").delete().eq("id", id).select("id");
         if (error) return json({ error: error.message }, 400);
+        if (!deleted || deleted.length === 0) return json({ error: "No such comment" }, 404);
         detail.push(`comment ${id} deleted`);
         break;
       }
@@ -203,8 +232,12 @@ Deno.serve(async (req) => {
         const { error } = await admin.from("hike_photos").delete().eq("id", id);
         if (error) return json({ error: error.message }, 400);
 
-        const removed = await removePaths(admin, "hike-photos", [photo.storage_path]);
+        const { removed, failed } = await removePaths(admin, "hike-photos", [photo.storage_path]);
         detail.push(`photo ${id} deleted`, `${removed}/1 object removed`);
+        if (failed.length > 0) {
+          detail.push(`STORAGE NOT REMOVED -- orphaned: ${failed.join(", ")}`);
+          return json({ ok: false, action, id, detail, orphanedPaths: failed }, 500);
+        }
         break;
       }
 
@@ -212,11 +245,17 @@ Deno.serve(async (req) => {
         // Both halves. Nulling the column alone is the bug this exists to fix:
         // avatars is a public bucket, so the image stays readable at a stable
         // unauthenticated URL and share-preview keeps republishing it.
-        const { error } = await admin
+        // Only avatar_url. Nulling avatar_preset too would destroy a legitimate
+        // preset-icon choice that was never the abusive thing -- the two are
+        // mutually exclusive, so an account with a preset has no uploaded file
+        // to moderate in the first place.
+        const { data: updated, error } = await admin
           .from("profiles")
-          .update({ avatar_url: null, avatar_preset: null })
-          .eq("id", id);
+          .update({ avatar_url: null })
+          .eq("id", id)
+          .select("id");
         if (error) return json({ error: error.message }, 400);
+        if (!updated || updated.length === 0) return json({ error: "No such profile" }, 404);
 
         const removed = await emptyUserFolder(admin, "avatars", id);
         detail.push(`avatar cleared for ${id}`, `${removed} object(s) removed`);
