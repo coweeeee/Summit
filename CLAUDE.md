@@ -37,7 +37,9 @@ Edge functions (Deno, deployed):
 - `report-alert` — **verify_jwt false**; called by a Database Webhook on INSERT and forwards a summary to a Slack/Discord incoming webhook (`REPORT_ALERT_WEBHOOK_URL` secret). Despite the name it serves **both `reports` and `trail_requests`**, dispatching on the payload's `table` field — the name stayed because the reports webhook already points at that path and renaming would mean a window with abuse reports unannounced. `TRAIL_REQUEST_WEBHOOK_URL` optionally routes trail requests to a separate channel, falling back to the reports one. All user-written text passes through `sanitizeForChat()` first: a trail named `@everyone` would otherwise mass-ping the channel on submission. Trigger definitions are recorded in `supabase/webhooks.sql`, since a dashboard-created webhook leaves no trace in the repo. verify_jwt would be useless here since any signed-in user's JWT satisfies it; instead it exact-matches a shared secret. Note the runtime's `SUPABASE_SERVICE_ROLE_KEY` is the **new-format `sb_secret_...` key**, while a dashboard-created webhook stores the **legacy service-role JWT** — different credentials, which is why it 401'd until a dedicated `REPORT_ALERT_SECRET` was used instead.
 - `share-preview` — **verify_jwt false**; backs the public share pages. Reads with the service role and returns an explicitly whitelisted set of fields for `?type=profile|hike|trail`. Private accounts are excluded, and missing/private/owned-by-private all return an identical `{ok:false}`.
 
-Storage buckets: `avatars`, `hike-photos`, both public, path convention `${userId}/filename` (or `${userId}/${hikeId}_${index}.ext` for hike photos). Public bucket listing policies were deliberately removed — direct URL reads still work fine. INSERT, UPDATE and DELETE policies all key on `(auth.uid())::text = (storage.foldername(name))[1]`.
+Storage buckets: `avatars` and `hike-photos`, path convention `${userId}/filename` (or `${userId}/${hikeId}_${index}.ext` for hike photos). **They differ in visibility and this file used to claim both were public — it was wrong.** Verified against `storage.buckets` on 2026-08-14: `avatars` is `public = true`, `hike-photos` is `public = false`. Hike photos are read through 1-hour signed URLs and `hike_photos.storage_path` stores a **path, not a URL**; `getPublicUrl` on the private bucket builds a string happily and then 400s. Public bucket listing policies were deliberately removed — direct URL reads still work fine. INSERT, UPDATE and DELETE policies all key on `(auth.uid())::text = (storage.foldername(name))[1]`.
+
+Note the RLS asymmetry that produces silent no-ops: `storage.objects` has exactly **one** SELECT policy, scoped to `bucket_id = 'hike-photos'`. Nothing covers `avatars`, so `storage.list()` on `avatars` under a user's JWT is RLS-filtered to empty and returns `{data: [], error: null}` — a list-then-remove implementation reads that as "nothing to delete" and leaves a public file live. The same code works under the service role, so it tests clean through the moderator path and fails only for real users.
 
 **Uploading: use `lib/upload.ts`, never `fetch(uri).blob().arrayBuffer()`.** React Native's Blob implements only `size`, `type` and `slice()` — there is no `arrayBuffer()`. Both upload paths did this originally, threw a TypeError, swallowed it into a generic alert, and neither bucket had ever received a single object. The helper asks ImagePicker for base64 and decodes it with a lookup table.
 
@@ -98,6 +100,33 @@ Build numbering is deliberately **local and literal — there is no `eas.json` a
 
 All of these are prebuild-time settings written into `Info.plist`/`build.gradle`. Editing `app.json` changes nothing until the next `expo prebuild`, and it must be prebuilt before the archive you actually upload.
 
+### Verifying a release build — four traps, each hit for real
+
+Everything below was learned by getting it wrong on 2026-08-14. Each one *looks* verified while actually telling you nothing.
+
+**`CURRENT_PROJECT_VERSION` is NOT this app's build number. Do not check it.** This project sets `INFOPLIST_FILE = Summit/Info.plist` — a physical file, not a generated one — and Expo's `withBuildNumber` plugin writes `ios.buildNumber` straight into that file's `CFBundleVersion` key, ignoring `CURRENT_PROJECT_VERSION` entirely. The pbxproj field just sits at its template default. Observed live: `CURRENT_PROJECT_VERSION = 1` in `project.pbxproj` while the real `CFBundleVersion` was `3`. Verify the build number this way and nothing else:
+
+```bash
+/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" artifacts/mobile/ios/Summit/Info.plist
+```
+
+**The four Required-Reason API categories must be declared in `app.json`, not inherited.** `ios.privacyManifests` is merged into `PrivacyInfo.xcprivacy` by `withPrivacyInfo`, and `mergePrivacyInfo()` merges into *whatever file already exists*. A prebuild that reuses an existing `ios/` skips re-copying template files, so the categories Expo's template normally supplies vanish if they are not also in `app.json`. Proven by deleting the generated manifest and prebuilding: it came back with the collected data types and **zero** accessed-API entries. Both halves are now declared in `app.json` so the manifest reproduces in full from config alone. The merge is a union keyed on category, so restating template values cannot duplicate them.
+
+**A build number burned in App Store Connect is burned forever.** Apple enforces unique `(version, build)` pairs per app. If a broken or premature archive is ever uploaded under a number, that number is unusable even though the upload was a mistake — there is no reclaiming it. You go forward, never sideways. Bump `ios.buildNumber` and re-archive; the rejection otherwise lands *at upload*, after prebuild, pods and archive have all completed.
+
+**Archives pile up and their Organizer labels lie.** They accumulate under `~/Library/Developer/Xcode/Archives/<date>/`, and it is easy to end up with several sharing one version/build label — a failed attempt and a good one look identical in the Organizer. Before distributing, confirm *which* `.xcarchive` you have by reading what is actually inside it:
+
+```bash
+A=~/Library/Developer/Xcode/Archives/<date>/<name>.xcarchive
+plutil -p "$A/Info.plist" | grep -E 'CFBundleVersion|uploadedBuildNumber|state'
+/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$A/Products/Applications/Summit.app/Info.plist"
+plutil -p "$A/Products/Applications/Summit.app/PrivacyInfo.xcprivacy"
+```
+
+The archive's own `Info.plist` also carries a `Distributions` array once uploaded — that is how you tell an uploaded archive from a merely-built one, and it records `uploadedBuildNumber` and the upload's success state. An archive with no `Distributions` key was never sent to Apple.
+
+One thing that is *not* a bug, so nobody re-investigates it: an automatic archive is signed **Apple Development** and its embedded entitlements read `aps-environment: development` with `get-task-allow: true`. Xcode re-signs with the distribution certificate at export, which flips APS to `production`. You cannot read the uploaded build's entitlements off the local archive.
+
 `pnpm-workspace.yaml` used to exclude every non-`linux-x64` platform binary under a `# replit uses linux-x64 only` comment. On Apple Silicon that excluded exactly the binary needed — `lightningcss` had no `darwin-arm64` build, so Expo web could not bundle CSS at all. All five `darwin-arm64` exclusions are removed; don't reinstate them.
 
 ## Sharing (Phase 1)
@@ -130,7 +159,11 @@ Phase 2 (Universal Links / App Links, so links open the app directly) is **block
 
 ## Things to verify first (uncertain completion state)
 
-1. Native dependency errors on start: **do not just run `pnpm install`**. `node_modules` is linked against pnpm store `v10` while the installed pnpm is 11.x, so a plain install migrates the whole tree and churns the lockfile. Use `npx pnpm@10 --filter @workspace/mobile add <pkg>`. Separately, `expo prebuild` fails with `Unicode Normalization not appropriate for ASCII-8BIT` unless run with `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` — CocoaPods, not Expo. The dev client is built by plain local `xcodebuild`; **EAS and an Expo login are not involved** and do not gate native work.
+1. Native dependency errors on start: the pnpm situation **reversed on 2026-08-14 and this entry used to say the opposite.** The store migration has happened — `node_modules/.modules.yaml` now records `packageManager: pnpm@11.17.0` and `storeDir: .../store/v11`, and ambient pnpm is 11.17.0 (both verified). **`npx pnpm@10` now refuses outright** with *"The dependencies at ... are currently linked from the store at ... v11"*. Use the ambient **pnpm 11**; ignore any older note telling you to pin pnpm@10.
+
+   This repo root is a **pnpm workspace root** (`pnpm-workspace.yaml` is present), so adding a dependency at the root requires `-w` / `--workspace-root` — without it pnpm refuses with `ERR_PNPM_ADDING_TO_ROOT`. Package-scoped installs still take `--filter @workspace/mobile`. To move a package between dependency blocks, edit `package.json` then run `pnpm install --lockfile-only`: it downloads nothing and touches no `node_modules`. **Regenerate the lockfile in the same commit**, because `scripts/post-merge.sh` runs `pnpm install --frozen-lockfile` and fails otherwise.
+
+   Separately, `expo prebuild` fails with `Unicode Normalization not appropriate for ASCII-8BIT` unless run with `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` — CocoaPods, not Expo. The dev client is built by plain local `xcodebuild`; **EAS and an Expo login are not involved** and do not gate native work.
 2. ~~`discover.tsx` `PeopleTab.toggleFollow` missing `status`~~ — **fixed.** It now sets `status` explicitly and `fetchFollowing` selects it. The underlying gotcha still applies to any new follow-insert: the column default is `'accepted'`, so an insert that omits `status` is rejected outright for a private target.
 
 ## Explicitly not done yet (don't assume these exist)
