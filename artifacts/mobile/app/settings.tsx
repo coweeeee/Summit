@@ -21,7 +21,7 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { USERNAME_RULE_HINT, isValidUsername, normalizeUsername } from "@/lib/username";
-import { uploadImage } from "@/lib/upload";
+import { avatarPathFor, clearAvatarObjects, uploadImage } from "@/lib/upload";
 import Avatar from "@/components/Avatar";
 import { AVATAR_PRESETS, PRESET_DISC_ALPHA } from "@/lib/avatars";
 import { ratingAvailable, reviewUrl } from "@/lib/rating";
@@ -315,7 +315,9 @@ export default function SettingsScreen() {
         return;
       }
       const ext = asset.uri.split(".").pop() || "jpg";
-      const fileName = `${profile.id}/avatar.${ext}`;
+      // Extensionless and fixed -- see avatarPathFor. The extension still drives
+      // the content type; it just no longer multiplies the objects.
+      const fileName = avatarPathFor(profile.id);
 
       const { url: avatarUrl, error: uploadError } = await uploadImage(
         "avatars", fileName, asset.base64, ext
@@ -349,6 +351,11 @@ export default function SettingsScreen() {
     if (!profile || avatarLoading) return;
     setAvatarLoading(true);
     const { error } = await supabase.from("profiles").update(next).eq("id", profile.id);
+    // Dropping the photo has to delete the FILE, not just the column. avatars is
+    // a public bucket, so a cleared-but-not-deleted avatar stays readable at a
+    // stable unauthenticated URL and share-preview keeps republishing it -- the
+    // user has been told the picture is gone and it is not.
+    if (!error && next.avatar_url === null) await clearAvatarObjects(profile.id);
     setAvatarLoading(false);
     if (error) { Alert.alert("Could not save", error.message); return; }
     await refreshProfile();
