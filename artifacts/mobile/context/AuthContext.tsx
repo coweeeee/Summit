@@ -310,10 +310,29 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
       // path is only a landing spot; what matters is the fragment, which the
       // listener in _layout.tsx reads to start recovery.
       //
-      // createURL rather than a hardcoded "summit://": a dev client resolves to
-      // exp+summit://, and a link built for the wrong scheme opens nothing.
-      // Both forms have to be allow-listed as Supabase redirect URLs.
-      const redirectTo = Linking.createURL('/login')
+      // Only the `summit://` scheme is ever produced here, including in a dev
+      // client. Verified rather than assumed: expo-linking contains no `exp+`
+      // construction anywhere, resolveScheme returns app.json's `scheme`
+      // ('summit'), and an instrumented run in the dev client emitted
+      // `summit:///login` with hostUri present but unused. `exp+summit://` is
+      // registered in Info.plist by the expo-dev-client plugin for the LAUNCHER
+      // url only, and Release excludes the dev client entirely -- it does not
+      // need allow-listing and never did.
+      // Emits `summit://login`, which must be covered by an entry in Supabase
+      // Auth > URL Configuration > Redirect URLs -- `summit://**` covers it.
+      // NO LEADING SLASH. This is the whole bug, and it is one character.
+      //   createURL('/login') -> summit:///login   (empty host, path /login)
+      //   createURL('login')  -> summit://login    (host `login`, no path)
+      // Both verified by logging the real call in a dev client.
+      //
+      // Supabase documents the callback shape as [SCHEME]://[HOSTNAME] and the
+      // recommended allow-list entry as `scheme://**`, where the `**` sits in
+      // the HOST position. `summit:///login` has no host for that `**` to match
+      // and carries a path the pattern does not, so it never matches -- and an
+      // unlisted redirect is silently discarded in favour of Site URL. The
+      // symptom is an emailed link that opens a browser at the Site URL with a
+      // perfectly valid recovery fragment attached, having never reached the app.
+      const redirectTo = Linking.createURL('login')
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
       if (error) {
         // Deliberately not surfaced to the caller as "no such account" -- see
