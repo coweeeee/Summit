@@ -318,20 +318,36 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
       // registered in Info.plist by the expo-dev-client plugin for the LAUNCHER
       // url only, and Release excludes the dev client entirely -- it does not
       // need allow-listing and never did.
-      // Emits `summit://login`, which must be covered by an entry in Supabase
-      // Auth > URL Configuration > Redirect URLs -- `summit://**` covers it.
-      // NO LEADING SLASH. This is the whole bug, and it is one character.
+      // NO LEADING SLASH:
       //   createURL('/login') -> summit:///login   (empty host, path /login)
       //   createURL('login')  -> summit://login    (host `login`, no path)
       // Both verified by logging the real call in a dev client.
       //
-      // Supabase documents the callback shape as [SCHEME]://[HOSTNAME] and the
-      // recommended allow-list entry as `scheme://**`, where the `**` sits in
-      // the HOST position. `summit:///login` has no host for that `**` to match
-      // and carries a path the pattern does not, so it never matches -- and an
-      // unlisted redirect is silently discarded in favour of Site URL. The
-      // symptom is an emailed link that opens a browser at the Site URL with a
-      // perfectly valid recovery fragment attached, having never reached the app.
+      // THE SHAPE WAS NEVER THE WHOLE BUG, and an earlier version of this
+      // comment claimed `summit://**` was already allow-listed. IT IS NOT.
+      // Password reset kept failing on build 1.0.0 (3), which contains the
+      // no-leading-slash fix, and the reason is configuration rather than code:
+      // `summit://login` is absent from Supabase Auth > URL Configuration >
+      // Redirect URLs, so GoTrue discards it and falls back to Site URL -- the
+      // Vercel share host -- and the emailed link opens a browser there with a
+      // perfectly valid recovery fragment that never reaches the app.
+      //
+      // Proven against the live project by probing /verify with a junk token,
+      // which still honours redirect_to for an ALLOW-LISTED target and falls
+      // back for an unlisted one. No email and no user data involved:
+      //
+      //   curl -sSD - -o /dev/null \
+      //     "$SUPABASE_URL/auth/v1/verify?token=INVALIDPROBE&type=recovery\
+      //      &redirect_to=<url-encoded target>" | grep -i '^location:'
+      //
+      //   https://<site>/DISCRIMINATOR -> echoed back  (redirect_to IS honoured)
+      //   summit://login               -> Site URL     (rejected)
+      //   summit://                    -> Site URL     (rejected)
+      //   https://not-allowed.example  -> Site URL     (rejected, control)
+      //
+      // Re-run that probe after adding the entry: `summit://login` echoing back
+      // instead of the Site URL is the confirmation, and it does not need a
+      // real recovery email to check.
       const redirectTo = Linking.createURL('login')
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
       if (error) {
