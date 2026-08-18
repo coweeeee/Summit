@@ -99,8 +99,18 @@ Deno.serve(async (req) => {
     if (caller.id === targetUserId) {
       return new Response(JSON.stringify({ success: true, selfAction: true }), { status: 200 });
     }
-    const query = admin.from("likes").select("id, hike_id, hikes!inner(user_id)").eq("user_id", caller.id).eq("hikes.user_id", targetUserId).limit(1);
-    const { data: likeRows } = hikeId ? await query.eq("hike_id", hikeId) : await query;
+    // `likes` is keyed on (user_id, hike_id) and HAS NO `id` COLUMN. Selecting
+    // one made PostgREST fail the whole request with 42703, and because the
+    // error was destructured away, `data` came back null and the guard below
+    // read that as "no such like" -- so every like notification 403'd.
+    const query = admin.from("likes").select("hike_id, hikes!inner(user_id)").eq("user_id", caller.id).eq("hikes.user_id", targetUserId).limit(1);
+    const { data: likeRows, error: likeError } = hikeId ? await query.eq("hike_id", hikeId) : await query;
+    if (likeError) {
+      // Never let a broken query masquerade as a failed authorization check.
+      // A 403 says "you didn't do this"; this says "we couldn't tell".
+      console.error("send-notification: like verification query failed", likeError.message);
+      return new Response(JSON.stringify({ error: `Could not verify like: ${likeError.message}` }), { status: 500 });
+    }
     if (!likeRows || likeRows.length === 0) {
       return new Response(JSON.stringify({ error: "No matching like found for caller -> target" }), { status: 403 });
     }
@@ -112,8 +122,15 @@ Deno.serve(async (req) => {
     // owned by the target, so this endpoint can't be used to push arbitrary
     // text at someone. hikeId narrows it to the comment just posted when the
     // client passes it, which hike-detail.tsx does.
+    // `comments` genuinely does have an `id`, so this one was never broken --
+    // but it gets the same error handling so the next schema change cannot
+    // turn a query failure back into a silent 403.
     const query = admin.from("comments").select("id, hike_id, hikes!inner(user_id)").eq("user_id", caller.id).eq("hikes.user_id", targetUserId).limit(1);
-    const { data: commentRows } = hikeId ? await query.eq("hike_id", hikeId) : await query;
+    const { data: commentRows, error: commentError } = hikeId ? await query.eq("hike_id", hikeId) : await query;
+    if (commentError) {
+      console.error("send-notification: comment verification query failed", commentError.message);
+      return new Response(JSON.stringify({ error: `Could not verify comment: ${commentError.message}` }), { status: 500 });
+    }
     if (!commentRows || commentRows.length === 0) {
       return new Response(JSON.stringify({ error: "No matching comment found for caller -> target" }), { status: 403 });
     }
@@ -121,12 +138,18 @@ Deno.serve(async (req) => {
     if (caller.id === targetUserId) {
       return new Response(JSON.stringify({ success: true, selfAction: true }), { status: 200 });
     }
-    const { data: followRows } = await admin
+    // Same defect as `likes`: `follows` is keyed on
+    // (follower_id, following_id) and has no `id` column either.
+    const { data: followRows, error: followError } = await admin
       .from("follows")
-      .select("id")
+      .select("follower_id")
       .eq("follower_id", caller.id)
       .eq("following_id", targetUserId)
       .limit(1);
+    if (followError) {
+      console.error("send-notification: follow verification query failed", followError.message);
+      return new Response(JSON.stringify({ error: `Could not verify follow: ${followError.message}` }), { status: 500 });
+    }
     if (!followRows || followRows.length === 0) {
       return new Response(JSON.stringify({ error: "No matching follow found for caller -> target" }), { status: 403 });
     }
