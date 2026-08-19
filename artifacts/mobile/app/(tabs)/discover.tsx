@@ -409,6 +409,8 @@ import { Feather } from "@expo/vector-icons";
       // whole-list fetches, and the two result sets have nothing to do with
       // each other. Sharing it works today only because the two view modes are
       // mutually exclusive, which is a coincidence, not a design.
+      // Same reason as load(): anon cannot read trails_with_ratings.
+      if (!session) return;
       const seq = ++mapSeqRef.current;
       setMapLoading(true);
       try {
@@ -478,6 +480,19 @@ import { Feather } from "@expo/vector-icons";
     };
 
     const load = async () => {
+      // Every trail query below reads `trails_with_ratings`, and anon holds no
+      // grant on it or on the `trails` table underneath -- deliberately, per the
+      // "require sign-in for everything" decision in CLAUDE.md. On a signed-out
+      // cold start `(tabs)` mounts BEFORE AuthGate's redirect lands, so without
+      // this the fetch goes out as anon and comes back 42501 "permission denied
+      // for view trails_with_ratings", logging a warning for a request that was
+      // never allowed to succeed. fetchSaved() has guarded on session all along;
+      // this is the same guard on the other half of the same Promise.all.
+      //
+      // Returns WITHOUT touching `loading`, which starts true: the honest state
+      // here is "still loading", and clearing it would let EmptyState assert
+      // "no trails" over a list that was never queried.
+      if (!session) return;
       const seq = ++loadSeqRef.current;
       setLoading(true);
       offsetRef.current = 0;
@@ -571,7 +586,17 @@ import { Feather } from "@expo/vector-icons";
     // built under different filters.
     useEffect(() => {
       if (viewMode === "list") load();
-    }, [diffFilter, regionFilter, activeCategories, sortBy, debouncedSearch, viewMode, location.fix]);
+      // This dep is load-bearing, not decorative: load() now returns early
+      // without a session, so without it the list would stay empty forever after
+      // signing in -- the effect would never re-run to try again.
+      //
+      // `session?.user.id` rather than `session`. AuthContext calls setSession on
+      // every onAuthStateChange, and TOKEN_REFRESHED delivers a NEW session
+      // object roughly hourly. Depending on the object would re-run load() on
+      // each refresh, which resets offsetRef and setTrails -- throwing away
+      // every page the user had scrolled. The id changes only on sign-in and
+      // sign-out, which is exactly when a reload is wanted.
+    }, [diffFilter, regionFilter, activeCategories, sortBy, debouncedSearch, viewMode, location.fix, session?.user.id]);
 
     // "unsupported" is the one state with no action to offer and no way back,
     // so leaving the sort selected would leave a control that can only
@@ -585,7 +610,7 @@ import { Feather } from "@expo/vector-icons";
 
     useEffect(() => {
       if (viewMode === "map") fetchMapData();
-    }, [diffFilter, regionFilter, activeCategories, debouncedSearch, viewMode]);
+    }, [diffFilter, regionFilter, activeCategories, debouncedSearch, viewMode, session?.user.id]);
 
     /**
      * Point the camera at whatever is currently in the result set.
