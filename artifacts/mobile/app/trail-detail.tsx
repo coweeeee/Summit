@@ -322,6 +322,47 @@ export default function TrailDetailScreen() {
                 </View>
               </View>
             )}
+            {/* REQUIRED ATTRIBUTION, not decoration. Open-Meteo serves this data
+                under CC BY 4.0, whose licence page states: "You must include a
+                link next to any location Open-Meteo data are displayed", with
+                the example markup
+                <a href="https://open-meteo.com/">Weather data by Open-Meteo.com</a>.
+                https://open-meteo.com/en/licence
+                Two consequences for where this sits:
+                  - It is a LINK, not plain text. The requirement is explicit
+                    about that, so a styled label alone would not satisfy it.
+                  - It renders NEXT TO the data, inside this card's section --
+                    not in Settings or an About screen. "Next to any location
+                    the data are displayed" is the wording, and trail-detail is
+                    the only place weather is displayed in this app.
+                Gated on `weather` rather than the section, so it never appears
+                beside a spinner that is not yet showing anyone's data.
+
+                THERE ARE TWO OPEN-METEO DISPLAY SITES ON THIS SCREEN, not one.
+                The second is the "Good to know" list at :420, whose first line
+                is weatherTip() in lib/trailTips.ts -- "60F and partly cloudy at
+                the trailhead right now". One credit is judged to cover both:
+                both render on this single scrollable screen, and both are gated
+                on exactly the same `weather` being non-null (buildTrailTips is
+                passed `weather ? {...} : null`, and weatherTip returns null
+                without it). So there is no state in which Open-Meteo data is on
+                screen without this credit also on screen. If a second credit
+                under "Good to know" is wanted, that is a presentation call, not
+                a compliance gap.
+
+                If the WeatherKit migration lands and Open-Meteo is removed,
+                this goes with it -- and Apple's own attribution replaces it.
+                Removing Open-Meteo means removing BOTH display sites. */}
+            {weather && (
+              <Pressable
+                onPress={() => Linking.openURL("https://open-meteo.com/")}
+                hitSlop={8}
+                accessibilityRole="link"
+                accessibilityLabel="Weather data by Open-Meteo.com. Opens open-meteo.com"
+              >
+                <Text style={styles.weatherCredit}>Weather data by Open-Meteo.com</Text>
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -421,6 +462,7 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   backBtn: { padding: 2, marginLeft: -6 },
   sourceCredit: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.text3, lineHeight: 16 },
+  weatherCredit: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.accent, marginTop: 8, marginLeft: 4 },
   sourceLink: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.accent, marginTop: 4 },
   headerTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text, flex: 1, textAlign: "center" },
   hero: { marginHorizontal: 16, marginBottom: 4, backgroundColor: Colors.bg3, borderRadius: 16, borderWidth: 1, borderColor: Colors.border, padding: 20 },
