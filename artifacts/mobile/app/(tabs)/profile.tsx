@@ -18,7 +18,7 @@ import { Feather } from "@expo/vector-icons";
   import { useAuth } from "@/context/AuthContext";
   import { useHikes } from "@/context/HikesContext";
   import { supabase } from "@/lib/supabase";
-  import { BADGE_DEFINITIONS, badgeProgress, isEarlyBirdStart } from "@/lib/badges";
+  import { BADGE_DEFINITIONS, badgeProgress, isEarlyBirdStart, nextBadgeGoal } from "@/lib/badges";
   import { displayName, formatShortDate, getDiffColor } from "@/lib/format";
   import Avatar from "@/components/Avatar";
   import EmptyState from "@/components/EmptyState";
@@ -206,6 +206,22 @@ import { Feather } from "@expo/vector-icons";
                 );
               })}
             </ScrollView>
+            {/* The nudge, without requiring a tap. badgeProgress() has always
+                existed but only rendered inside the badge modal, so the one
+                screen element that tells you how close you are was reachable
+                only by tapping a badge you had no reason to tap. Renders
+                nothing once every badge is earned -- an empty "nothing left"
+                row would be a worse reward than silence. */}
+            {(() => {
+              const goal = nextBadgeGoal(hikes.length, totalElev, hasEarlyHike, awardedBadgeKeys, distanceUnit);
+              if (!goal) return null;
+              return (
+                <View style={styles.badgeGoal}>
+                  <Feather name="target" size={12} color={Colors.text3} />
+                  <Text style={styles.badgeGoalText}>{goal.message}</Text>
+                </View>
+              );
+            })()}
           </View>
 
           {/* Tab switcher */}
@@ -428,6 +444,8 @@ import { Feather } from "@expo/vector-icons";
     statCellVal: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.accent },
     statCellLbl: { fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.text3, textTransform: "uppercase", letterSpacing: 0.3, marginTop: 2 },
     badgesSection: { marginBottom: 4 },
+    badgeGoal: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, marginTop: 10 },
+    badgeGoalText: { fontFamily: "Inter_500Medium", fontSize: 12.5, color: Colors.text3 },
     badgesRow: { paddingHorizontal: 20, gap: 16, paddingBottom: 4 },
     badge: { alignItems: "center", gap: 6, position: "relative" },
     badgeLocked: { opacity: 0.45 },

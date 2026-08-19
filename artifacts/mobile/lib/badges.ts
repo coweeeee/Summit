@@ -1,4 +1,4 @@
-import { formatElevation, type DistanceUnit } from "./units";
+import { formatElevation, type DistanceUnit } from "./units.ts";
 
 // Single source of truth for badges: the thresholds, the checks, and the copy
 // that describes them. Three screens used to keep their own copies of this —
@@ -92,4 +92,81 @@ export function badgeProgress(
     default:
       return null;
   }
+}
+
+/**
+ * The unearned badge the user is closest to, and how much is left.
+ *
+ * Exists because badgeProgress() only ever appeared inside the badge modal, so
+ * the nudge it provides was reachable only by tapping a badge you had no
+ * particular reason to tap. This is the same numbers, surfaced without a tap.
+ *
+ * "Closest" is measured as the REMAINING FRACTION of each threshold, not the
+ * raw remainder, because the thresholds are in different units -- 4,000 ft of
+ * elevation and 3 hikes cannot be compared as numbers. Fractions can.
+ *
+ * Early Bird is deliberately excluded from the ranking rather than given a
+ * synthetic fraction. It is a single yes/no act with no partial progress, so
+ * any fraction assigned to it would be invented, and it would then either
+ * always win (0/1 = furthest) or always lose. It is returned only when it is
+ * the sole thing left, where "log an early start" is genuinely the next goal.
+ *
+ * `earnedKeys` is the server's awarded set and wins over the local check, the
+ * same precedence the profile grid uses: badges are never revoked, so a badge
+ * awarded before a hike was deleted must not reappear as a goal.
+ */
+export function nextBadgeGoal(
+  hikeCount: number,
+  totalElevationFt: number,
+  hasEarlyHike: boolean,
+  earnedKeys: ReadonlySet<string>,
+  unit: DistanceUnit
+): { key: string; name: string; message: string } | null {
+  const isEarned = (b: BadgeDefinition) =>
+    earnedKeys.has(b.key) || b.check(hikeCount, totalElevationFt, hasEarlyHike);
+
+  const remainingFor = (key: string): { left: number; threshold: number; noun: string } | null => {
+    switch (key) {
+      case "climber":
+        return { left: CLIMBER_ELEVATION_FT - totalElevationFt, threshold: CLIMBER_ELEVATION_FT, noun: "elevation" };
+      case "explorer":
+        return { left: EXPLORER_HIKE_COUNT - hikeCount, threshold: EXPLORER_HIKE_COUNT, noun: "hikes" };
+      case "summit":
+        return { left: SUMMIT_HIKE_COUNT - hikeCount, threshold: SUMMIT_HIKE_COUNT, noun: "hikes" };
+      case "trailblazer":
+        return { left: TRAILBLAZER_HIKE_COUNT - hikeCount, threshold: TRAILBLAZER_HIKE_COUNT, noun: "hikes" };
+      default:
+        return null;
+    }
+  };
+
+  let best: { def: BadgeDefinition; left: number; noun: string; fraction: number } | null = null;
+  for (const def of BADGE_DEFINITIONS) {
+    if (isEarned(def)) continue;
+    const r = remainingFor(def.key);
+    if (!r || r.left <= 0) continue;
+    const fraction = r.left / r.threshold;
+    if (!best || fraction < best.fraction) best = { def, left: r.left, noun: r.noun, fraction };
+  }
+
+  if (best) {
+    const amount =
+      best.noun === "elevation"
+        ? formatElevation(best.left, unit)
+        : `${best.left} more ${best.left === 1 ? "hike" : "hikes"}`;
+    const phrase = best.noun === "elevation" ? `${amount} more elevation` : amount;
+    return { key: best.def.key, name: best.def.name, message: `${phrase} to unlock ${best.def.name}` };
+  }
+
+  // Nothing countable left. Early Bird is the only badge that can still be
+  // outstanding here, and only when it has genuinely not been earned.
+  const earlyBird = BADGE_DEFINITIONS.find(b => b.key === "earlybird");
+  if (earlyBird && !isEarned(earlyBird)) {
+    return {
+      key: earlyBird.key,
+      name: earlyBird.name,
+      message: `Start a hike before ${EARLY_BIRD_HOUR_CUTOFF} AM to unlock ${earlyBird.name}`,
+    };
+  }
+  return null;
 }
