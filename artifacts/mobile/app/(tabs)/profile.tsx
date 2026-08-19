@@ -15,6 +15,7 @@ import { Feather } from "@expo/vector-icons";
   } from "react-native";
   import { useSafeAreaInsets } from "react-native-safe-area-context";
   import Colors from "@/constants/colors";
+  import ActivityHeatmap from "@/components/ActivityHeatmap";
   import { useAuth } from "@/context/AuthContext";
   import { useHikes } from "@/context/HikesContext";
   import { supabase } from "@/lib/supabase";
@@ -81,6 +82,9 @@ import { Feather } from "@expo/vector-icons";
     const totalMiles = hikes.reduce((s, h) => s + h.distanceMi, 0);
     const totalElev  = hikes.reduce((s, h) => s + (h.elevationFt ?? 0), 0);
     const hasEarlyHike = hikes.some(h => isEarlyBirdStart(h.date));
+    // Memoised on the dates alone: ActivityHeatmap rebuilds a 371-cell grid,
+    // and this screen re-renders on every tab switch and modal open.
+    const heatmapDates = React.useMemo(() => hikes.map(h => h.date), [hikes]);
 
     const fetchCounts = async () => {
       if (!profile) return;
@@ -184,6 +188,12 @@ import { Feather } from "@expo/vector-icons";
                 <Feather name="chevron-right" size={14} color={Colors.accent} />
               </Pressable>
             )}
+          </View>
+
+          {/* Activity */}
+          <View style={styles.activitySection}>
+            <Text style={styles.sectionLabel}>Activity</Text>
+            <ActivityHeatmap dates={heatmapDates} />
           </View>
 
           {/* Badges */}
@@ -443,6 +453,7 @@ import { Feather } from "@expo/vector-icons";
     statCell: { flex: 1, backgroundColor: Colors.bg3, paddingVertical: 12, alignItems: "center" },
     statCellVal: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.accent },
     statCellLbl: { fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.text3, textTransform: "uppercase", letterSpacing: 0.3, marginTop: 2 },
+    activitySection: { marginBottom: 18 },
     badgesSection: { marginBottom: 4 },
     badgeGoal: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, marginTop: 10 },
     badgeGoalText: { fontFamily: "Inter_500Medium", fontSize: 12.5, color: Colors.text3 },
