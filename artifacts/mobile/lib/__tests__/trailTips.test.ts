@@ -128,3 +128,25 @@ describe("buildTrailTips — units", () => {
     assert.ok(mentions(metric, "km"));
   });
 });
+
+describe("attribution provenance", () => {
+  // The weather tip is Open-Meteo data rendered as prose, which makes it an
+  // attribution site under their CC BY 4.0 licence ("a link next to any
+  // location Open-Meteo data are displayed"). trail-detail renders the credit
+  // by matching tip.source, so losing this marker would silently drop a
+  // licence-required credit from the screen with nothing else failing.
+  test("the weather tip declares Open-Meteo as its source", () => {
+    const tips = buildTrailTips({ distance_mi: 4, elevation_ft: 500, tags: [], difficulty: "Moderate" }, "imperial", {
+      temp: 60,
+      condition: "Partly cloudy",
+    });
+    const weatherTip = tips.find(t => t.source === "open-meteo");
+    assert.ok(weatherTip, "expected a tip marked source: 'open-meteo'");
+    assert.match(weatherTip!.text, /60/);
+  });
+
+  test("no tip claims an Open-Meteo source when there is no weather", () => {
+    const tips = buildTrailTips({ distance_mi: 4, elevation_ft: 500, tags: [], difficulty: "Moderate" }, "imperial", null);
+    assert.equal(tips.some(t => t.source === "open-meteo"), false);
+  });
+});
