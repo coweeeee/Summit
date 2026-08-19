@@ -2,6 +2,8 @@ import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useState } from "react";
+import { Image } from "expo-image";
+import { signedUrlsFor } from "@/lib/upload";
 import {
   ActivityIndicator,
   Linking,
@@ -84,6 +86,60 @@ export default function TrailDetailScreen() {
   const [ratingStats, setRatingStats] = useState<TrailRatingStats | undefined>(undefined);
   const [ratingStatsFailed, setRatingStatsFailed] = useState(false);
   const [conditionSummary, setConditionSummary] = useState<SummarisedCondition[]>([]);
+  const [highlights, setHighlights] = useState<string[]>([]);
+
+  /**
+   * Photos from this trail's hikes, best first.
+   *
+   * "Best" has no direct signal to read: hike_photos is only
+   * (id, hike_id, user_id, storage_path, created_at) -- no likes, no views,
+   * nothing about the photo itself. So the ranking is a PROXY: the parent
+   * hike's overall_score, then recency. It ranks the experience, not the
+   * photograph, and that limitation is real rather than hidden.
+   *
+   * Ordering is done client-side. PostgREST cannot ORDER BY an embedded
+   * parent's column, and the alternative -- a view or RPC -- is a migration
+   * for a list this short.
+   *
+   * Photos live in a PRIVATE bucket, so paths must be signed before render;
+   * hike_photos SELECT is gated by can_view_user_content, so a private
+   * account's photos are filtered out by RLS before they ever arrive. Both
+   * are why this cannot just interpolate a public URL.
+   */
+  const fetchHighlights = async (trailId: string) => {
+    const { data, error } = await supabase
+      .from("hike_photos")
+      .select("storage_path, created_at, hikes!inner(trail_id, overall_score)")
+      .eq("hikes.trail_id", trailId)
+      .limit(30);
+    if (error) {
+      // Silent by design: a trail with no readable photos is the normal case,
+      // and an error banner over a decorative carousel would be noise.
+      console.warn("trail-detail: highlights fetch failed", error.message);
+      return;
+    }
+    type Row = { storage_path: string; created_at: string | null; hikes: { overall_score: number | null } | null };
+    const rows = (data ?? []) as unknown as Row[];
+    const ranked = rows
+      .filter(r => !!r.storage_path)
+      .sort((a, b) => {
+        // Unrated sorts last, and `0` COUNTS AS UNRATED -- this schema uses 0
+        // as "no rating given", not as a rating of zero. leaderboard_totals
+        // makes the same distinction with `FILTER (WHERE overall_score > 0)`,
+        // and the one photo in the database today sits on a 0-score hike, so
+        // reading it as a real score would rank it below every future 1-star.
+        const score = (v: number | null | undefined) => (v == null || v <= 0 ? -1 : v);
+        const av = score(a.hikes?.overall_score);
+        const bv = score(b.hikes?.overall_score);
+        if (bv !== av) return bv - av;
+        return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+      })
+      .slice(0, 10);
+    if (ranked.length === 0) return;
+    const signed = await signedUrlsFor(ranked.map(r => r.storage_path));
+    // Drop anything that failed to sign rather than rendering a broken tile.
+    setHighlights(ranked.map(r => signed[r.storage_path]).filter(Boolean));
+  };
 
   useEffect(() => {
     const fetchTrail = async () => {
@@ -92,6 +148,7 @@ export default function TrailDetailScreen() {
         setTrail(data);
         const { count } = await supabase.from("hikes").select("*", { count: "exact", head: true }).eq("trail_id", data.id);
         setLogCount(count || 0);
+        void fetchHighlights(data.id);
         if (data.lat && data.lng) setCoords({ lat: data.lat, lng: data.lng });
         // Tolerant of the view being absent: trail-conditions-summary.sql
         // has not been applied yet, so this 404s until it is. A missing
@@ -231,6 +288,21 @@ export default function TrailDetailScreen() {
         </View>
 
         {/* Weather */}
+        {/* Renders only when there is something to show. An empty "Photos"
+            heading on a trail nobody has photographed is a worse answer than
+            no section at all -- and with one photo in the whole database, the
+            empty case is the overwhelmingly common one. */}
+        {highlights.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Photos from this trail</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.highlightRow}>
+              {highlights.map(uri => (
+                <Image key={uri} source={{ uri }} style={styles.highlightPhoto} contentFit="cover" transition={150} />
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         {(weather || weatherLoading) && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Current conditions</Text>
@@ -365,6 +437,8 @@ const styles = StyleSheet.create({
   statBoxBorder: { borderLeftWidth: 1, borderRightWidth: 1, borderColor: Colors.border },
   statVal: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.text },
   statLbl: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.text3, textTransform: "uppercase", letterSpacing: 0.5 },
+  highlightRow: { gap: 10, paddingRight: 20 },
+  highlightPhoto: { width: 190, height: 140, borderRadius: 12, backgroundColor: Colors.bg3 },
   section: { paddingHorizontal: 16, marginBottom: 20 },
   sectionTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text, marginBottom: 10 },
   weatherLoading: { padding: 20, alignItems: "center" },
