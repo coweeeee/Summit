@@ -322,6 +322,51 @@ export default function TrailDetailScreen() {
                 </View>
               </View>
             )}
+            {/* REQUIRED ATTRIBUTION, not decoration. Open-Meteo serves this data
+                under CC BY 4.0, whose licence page states: "You must include a
+                link next to any location Open-Meteo data are displayed", with
+                the example markup
+                <a href="https://open-meteo.com/">Weather data by Open-Meteo.com</a>.
+                https://open-meteo.com/en/licence
+                Two consequences for where this sits:
+                  - It is a LINK, not plain text. The requirement is explicit
+                    about that, so a styled label alone would not satisfy it.
+                  - It renders NEXT TO the data, inside this card's section --
+                    not in Settings or an About screen. "Next to any location
+                    the data are displayed" is the wording, and trail-detail is
+                    the only place weather is displayed in this app.
+                Gated on `weather` rather than the section, so it never appears
+                beside a spinner that is not yet showing anyone's data.
+
+                THERE ARE TWO OPEN-METEO DISPLAY SITES ON THIS SCREEN, and
+                EACH CARRIES ITS OWN CREDIT. The second is the weather line in
+                "Good to know", which renders its own link keyed off
+                TrailTip.source === "open-meteo".
+
+                An earlier revision argued one credit covered both, on the
+                grounds that both are gated on the same `weather` being
+                non-null, so the data could never appear without a credit
+                somewhere on the page. That reasoning was wrong. The licence
+                asks for a link "next to any location Open-Meteo data are
+                displayed" -- that is visual adjacency at each location, not a
+                guarantee that a credit exists somewhere in the same scroll
+                view. Someone reading the tip 800px below this card has no
+                credit near their eyes. Shared gating proves the credit EXISTS;
+                it does not make it ADJACENT.
+
+                If the WeatherKit migration lands and Open-Meteo is removed,
+                this goes with it -- and Apple's own attribution replaces it.
+                Removing Open-Meteo means removing BOTH display sites. */}
+            {weather && (
+              <Pressable
+                onPress={() => Linking.openURL("https://open-meteo.com/")}
+                hitSlop={8}
+                accessibilityRole="link"
+                accessibilityLabel="Weather data by Open-Meteo.com. Opens open-meteo.com"
+              >
+                <Text style={styles.weatherCredit}>Weather data by Open-Meteo.com</Text>
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -391,9 +436,28 @@ export default function TrailDetailScreen() {
               weather above. These were three identical literals on all 225
               trails before. */}
           {buildTrailTips(trail, distanceUnit, weather ? { temp: weather.temp, condition: weather.condition } : null).map(tip => (
-            <View key={tip.text} style={styles.tipRow}>
-              <Feather name={tip.icon} size={15} color={Colors.text3} />
-              <Text style={styles.tipText}>{tip.text}</Text>
+            <View key={tip.text}>
+              <View style={styles.tipRow}>
+                <Feather name={tip.icon} size={15} color={Colors.text3} />
+                <Text style={styles.tipText}>{tip.text}</Text>
+              </View>
+              {/* Second attribution site. The weather tip above IS Open-Meteo
+                  data, and the licence asks for a link "next to any location
+                  Open-Meteo data are displayed" -- adjacency at each location,
+                  which the credit under the weather card 800px up does not
+                  provide for someone reading this line. Keyed off tip.source
+                  rather than the tip's index, so MAX_TIPS truncation or a
+                  reorder cannot detach the credit from the data. */}
+              {tip.source === "open-meteo" && (
+                <Pressable
+                  onPress={() => Linking.openURL("https://open-meteo.com/")}
+                  hitSlop={8}
+                  accessibilityRole="link"
+                  accessibilityLabel="Weather data by Open-Meteo.com. Opens open-meteo.com"
+                >
+                  <Text style={styles.tipCredit}>Weather data by Open-Meteo.com</Text>
+                </Pressable>
+              )}
             </View>
           ))}
         </View>
@@ -421,6 +485,10 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   backBtn: { padding: 2, marginLeft: -6 },
   sourceCredit: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.text3, lineHeight: 16 },
+  // Deliberately quieter than weatherCredit: this one sits inline under a tip
+  // rather than closing out a section, and only has to satisfy "next to".
+  tipCredit: { fontFamily: "Inter_400Regular", fontSize: 10.5, color: Colors.accent, marginLeft: 23, marginTop: 3, marginBottom: 10 },
+  weatherCredit: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.accent, marginTop: 8, marginLeft: 4 },
   sourceLink: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.accent, marginTop: 4 },
   headerTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text, flex: 1, textAlign: "center" },
   hero: { marginHorizontal: 16, marginBottom: 4, backgroundColor: Colors.bg3, borderRadius: 16, borderWidth: 1, borderColor: Colors.border, padding: 20 },

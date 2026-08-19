@@ -22,6 +22,18 @@ import { averageGrade, steepnessBand } from "./elevation.ts";
 export type TrailTip = {
   icon: React.ComponentProps<typeof Feather>["name"];
   text: string;
+  /**
+   * Where the tip's DATA came from, when that carries an attribution
+   * obligation. Only the weather tip sets it today.
+   *
+   * Exists so the renderer can put a credit next to THIS tip without knowing
+   * which index it landed at. Open-Meteo's licence requires a link "next to
+   * any location Open-Meteo data are displayed", and this tip is one of those
+   * locations -- so the tip declares its own provenance rather than the screen
+   * inferring it from ordering, which would break the moment the list is
+   * reordered or truncated by MAX_TIPS.
+   */
+  source?: "open-meteo";
 };
 
 export type TipTrail = {
@@ -133,6 +145,10 @@ function weatherTip(weather: TipWeather, unit: DistanceUnit): TrailTip | null {
     text: wet
       ? `${degrees} and ${weather.condition.toLowerCase()} right now — pack layers and expect slick footing.`
       : `${degrees} and ${weather.condition.toLowerCase()} at the trailhead right now.`,
+    // This line IS Open-Meteo data, so it is an attribution site in its own
+    // right. Covered by a test, because dropping this marker would silently
+    // remove a licence-required credit from the screen.
+    source: "open-meteo",
   };
 }
 
