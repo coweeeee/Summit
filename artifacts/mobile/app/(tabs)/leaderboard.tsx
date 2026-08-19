@@ -74,6 +74,7 @@ export default function LeaderboardScreen() {
 
   const [activeCategory, setActiveCategory] = useState("hikes");
   const [timePeriod, setTimePeriod] = useState<"alltime" | "week">("alltime");
+  const [scope, setScope] = useState<"global" | "friends">("global");
   const [leaders, setLeaders] = useState<LeaderEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -95,7 +96,38 @@ export default function LeaderboardScreen() {
     const totals = (data ?? []) as LeaderboardTotal[];
     if (error) { setLoading(false); setRefreshing(false); return; }
 
-    const userIds = totals.map(t => t.user_id);
+    // Friends scope is a CLIENT-SIDE filter over the same RPC, deliberately.
+    // leaderboard_totals takes no follows parameter, and adding one would mean
+    // a migration for something the client can already answer: the RPC returns
+    // one row per user_id and this screen already joins those to profiles.
+    //
+    // `status = 'accepted'` only -- a pending follow request is not a
+    // relationship yet, and counting it would leak that you had requested
+    // someone by ranking them alongside you.
+    //
+    // Self is always included. A "friends" board you cannot find yourself on
+    // answers a question nobody asked; the point is comparison against people
+    // you follow, which needs you in it.
+    let scoped = totals;
+    if (scope === "friends") {
+      if (!session) { setLeaders([]); setMyRank(null); setLoading(false); setRefreshing(false); return; }
+      const { data: follows, error: followsError } = await supabase
+        .from("follows")
+        .select("following_id")
+        .eq("follower_id", session.user.id)
+        .eq("status", "accepted");
+      if (followsError) {
+        // Never silently fall through to the global board -- showing strangers
+        // under a "Friends" heading is a worse answer than showing nothing.
+        console.warn("leaderboard: follows fetch failed", followsError.message);
+        setLeaders([]); setMyRank(null); setLoading(false); setRefreshing(false); return;
+      }
+      const allowed = new Set((follows ?? []).map((f: { following_id: string }) => f.following_id));
+      allowed.add(session.user.id);
+      scoped = totals.filter(t => allowed.has(t.user_id));
+    }
+
+    const userIds = scoped.map(t => t.user_id);
     if (userIds.length === 0) { setLeaders([]); setMyRank(null); setLoading(false); setRefreshing(false); return; }
 
     const { data: profiles } = await supabase.from("profiles").select("id, full_name, username, avatar_url, avatar_preset").in("id", userIds);
@@ -113,7 +145,7 @@ export default function LeaderboardScreen() {
       }
     };
 
-    const sorted = totals
+    const sorted = scoped
       .map(t => ({ id: t.user_id, value: getValue(t), ...profileMap[t.user_id] }))
       .filter(u => u.value > 0)
       .sort((a, b) => b.value - a.value)
@@ -130,7 +162,7 @@ export default function LeaderboardScreen() {
     setRefreshing(false);
   };
 
-  useEffect(() => { fetchLeaders(); }, [activeCategory, timePeriod]);
+  useEffect(() => { fetchLeaders(); }, [activeCategory, timePeriod, scope]);
 
   const cat = CATEGORIES.find(c => c.key === activeCategory)!;
 
@@ -145,6 +177,7 @@ export default function LeaderboardScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
+        <View style={styles.headerTop}>
         <Text style={styles.title}>Leaderboard</Text>
         <View style={styles.periodSwitch}>
           <Pressable onPress={() => setTimePeriod("week")} style={[styles.periodBtn, timePeriod === "week" && styles.periodBtnActive]}>
@@ -152,6 +185,20 @@ export default function LeaderboardScreen() {
           </Pressable>
           <Pressable onPress={() => setTimePeriod("alltime")} style={[styles.periodBtn, timePeriod === "alltime" && styles.periodBtnActive]}>
             <Text style={[styles.periodText, timePeriod === "alltime" && styles.periodTextActive]}>All Time</Text>
+          </Pressable>
+        </View>
+        </View>
+        {/* Its own row rather than more buttons in periodSwitch: scope and
+            period are independent axes, and putting four buttons in one pill
+            would read as one choice of four rather than two of two. It also
+            cannot share the title's row: three groups on one line is already
+            cramped at 393pt, and "Leaderboard" would be the thing that gives. */}
+        <View style={[styles.periodSwitch, styles.scopeSwitch]}>
+          <Pressable onPress={() => setScope("global")} style={[styles.periodBtn, scope === "global" && styles.periodBtnActive]}>
+            <Text style={[styles.periodText, scope === "global" && styles.periodTextActive]}>Everyone</Text>
+          </Pressable>
+          <Pressable onPress={() => setScope("friends")} style={[styles.periodBtn, scope === "friends" && styles.periodBtnActive]}>
+            <Text style={[styles.periodText, scope === "friends" && styles.periodTextActive]}>Following</Text>
           </Pressable>
         </View>
       </View>
@@ -187,8 +234,24 @@ export default function LeaderboardScreen() {
           {leaders.length === 0 ? (
             <EmptyState
               icon="award"
-              title={timePeriod === "week" ? "No hikes logged this week" : "No one on the board yet"}
-              message={timePeriod === "week" ? "Log a hike to appear here." : "Log a hike to be the first."}
+              title={
+                scope === "friends"
+                  ? "No one you follow is on the board"
+                  : timePeriod === "week"
+                  ? "No hikes logged this week"
+                  : "No one on the board yet"
+              }
+              // Scope is checked before period on purpose: with both filters
+              // narrowing at once, "log a hike to appear here" would be wrong
+              // advice -- logging one does not put someone you follow on the
+              // board. Name the filter that actually emptied it.
+              message={
+                scope === "friends"
+                  ? "Follow some hikers, or switch to Everyone."
+                  : timePeriod === "week"
+                  ? "Log a hike to appear here."
+                  : "Log a hike to be the first."
+              }
               actionLabel="Log a Hike"
               onAction={() => router.push("/(tabs)/log")}
             />
@@ -227,7 +290,9 @@ export default function LeaderboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
-  header: { paddingHorizontal: 20, paddingBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  header: { paddingHorizontal: 20, paddingBottom: 12 },
+  headerTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  scopeSwitch: { alignSelf: "flex-start", marginTop: 10 },
   title: { fontFamily: "Inter_700Bold", fontSize: 26, color: Colors.text, letterSpacing: -0.5 },
   periodSwitch: { flexDirection: "row", backgroundColor: Colors.bg3, borderRadius: 20, borderWidth: 1, borderColor: Colors.border, overflow: "hidden" },
   periodBtn: { paddingVertical: 6, paddingHorizontal: 12 },
