@@ -55,7 +55,7 @@ export default function ResetPasswordGate() {
 
   return (
     <KeyboardAvoidingView
-      style={[styles.container, { paddingTop: insets.top + 40 }]}
+      style={[styles.container, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 16 }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={styles.inner}>
@@ -113,7 +113,20 @@ export default function ResetPasswordGate() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bg },
+  // Absolute, not flex -- the identical trap that gateStyles in app/_layout.tsx
+  // already documents, applied there and missed here. This screen is returned by
+  // <AuthGate />, and RootLayoutNav renders <AuthGate /> as a SIBLING of <Stack>
+  // inside a flex column. Two flex:1 siblings SPLIT that column, so the reset
+  // form took its share and the navigator went on rendering the Feed -- tab bar,
+  // header, hike cards -- in the remainder, overlapping the Cancel link at the
+  // seam. `flex: 1` never meant "fill the screen" in this position; it meant
+  // "take your share of it". An opaque backgroundColor cannot help, because the
+  // Feed is not behind this view, it is beside it.
+  container: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+    backgroundColor: Colors.bg,
+  },
   inner: { flex: 1, paddingHorizontal: 24 },
   title: { fontFamily: "Inter_700Bold", fontSize: 28, color: Colors.text, marginBottom: 12 },
   body: { fontFamily: "Inter_400Regular", fontSize: 15, color: Colors.text3, lineHeight: 22, marginBottom: 28 },
