@@ -8,6 +8,10 @@ import {
   celsiusToFahrenheit,
   kmhToMph,
   KNOWN_CONDITION_CODES,
+  conditionFromWmo,
+  currentFromOpenMeteo,
+  dailyFromOpenMeteo,
+  weekdayLabel,
 } from "../weather.ts";
 
 // Apple's WeatherCondition enum, transcribed from
@@ -152,5 +156,87 @@ describe("dailyFromWeatherKit", () => {
   test("an empty or absent forecast yields an empty strip, not a crash", () => {
     assert.deepEqual(dailyFromWeatherKit([], "metric"), []);
     assert.deepEqual(dailyFromWeatherKit(undefined as never, "metric"), []);
+  });
+});
+
+
+describe("Open-Meteo fallback — WMO mapping", () => {
+  test("clear and cloud codes are dry; precipitation codes are wet", () => {
+    for (const c of [0, 1, 2, 3]) assert.equal(conditionFromWmo(c).wet, false, `wmo ${c}`);
+    for (const c of [51, 61, 71, 80, 85, 95, 99]) assert.equal(conditionFromWmo(c).wet, true, `wmo ${c}`);
+  });
+
+  test("fog wets surfaces even though it is not precipitation", () => {
+    assert.equal(conditionFromWmo(45).wet, true);
+    assert.equal(conditionFromWmo(48).wet, true);
+  });
+
+  test("an unrecognised code fails safe rather than reporting fair weather", () => {
+    // Same asymmetry as the WeatherKit table: a spurious footing warning is an
+    // annoyance, a missing one is not.
+    const info = conditionFromWmo(-1);
+    assert.equal(info.wet, true);
+    assert.notEqual(info.label, "Clear");
+  });
+});
+
+describe("currentFromOpenMeteo", () => {
+  test("passes values through — Open-Meteo already converted them server-side", () => {
+    const w = currentFromOpenMeteo({
+      temperature_2m: 60.4, apparent_temperature: 58.2,
+      relative_humidity_2m: 67, wind_speed_10m: 6.1, weather_code: 2,
+    });
+    assert.equal(w.temp, 60);
+    assert.equal(w.feelsLike, 58);
+    // Already a percentage here, unlike WeatherKit's 0-1 fraction.
+    assert.equal(w.humidity, 67);
+    assert.equal(w.condition, "Partly cloudy");
+    assert.equal(w.wet, false);
+  });
+});
+
+describe("dailyFromOpenMeteo — parallel arrays", () => {
+  const daily = {
+    time: ["2026-09-05", "2026-09-06", "2026-09-07"],
+    weather_code: [0, 61, 71],
+    temperature_2m_max: [70, 65, 30],
+    temperature_2m_min: [50, 45, 20],
+  };
+
+  test("reads the arrays positionally", () => {
+    const out = dailyFromOpenMeteo(daily);
+    assert.equal(out.length, 3);
+    assert.equal(out[1].date, "2026-09-06");
+    assert.equal(out[1].high, 65);
+    assert.equal(out[1].wet, true);
+    assert.equal(out[2].condition, "Snow");
+  });
+
+  test("caps at 7", () => {
+    const many = { ...daily, time: Array.from({ length: 10 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`) };
+    assert.equal(dailyFromOpenMeteo(many).length, 7);
+  });
+
+  test("a ragged or empty response degrades instead of throwing", () => {
+    // This is the FALLBACK path — it has to bend rather than break.
+    assert.deepEqual(dailyFromOpenMeteo({}), []);
+    const ragged = dailyFromOpenMeteo({ time: ["2026-09-05"] });
+    assert.equal(ragged.length, 1);
+    assert.equal(ragged[0].high, 0);
+  });
+});
+
+describe("weekdayLabel", () => {
+  test("names the weekday from LOCAL parts, not a UTC-parsed string", () => {
+    // `new Date("2026-09-05")` is parsed as UTC, so west of Greenwich it reports
+    // the previous weekday — which would mislabel every column in the strip.
+    const today = new Date(2026, 8, 5, 12, 0, 0); // Sat 5 Sep 2026, local
+    assert.equal(weekdayLabel("2026-09-05", today), "Today");
+    assert.equal(weekdayLabel("2026-09-06", today), "Sun");
+    assert.equal(weekdayLabel("2026-09-07", today), "Mon");
+  });
+
+  test("a malformed key yields an empty label rather than 'Invalid Date'", () => {
+    assert.equal(weekdayLabel("", new Date()), "");
   });
 });

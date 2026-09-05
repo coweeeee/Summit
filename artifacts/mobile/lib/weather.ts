@@ -199,3 +199,119 @@ export function dailyFromWeatherKit(days: WeatherKitDay[], unit: DistanceUnit): 
 
 /** Every code this app knows about — exported so tests can assert exhaustiveness. */
 export const KNOWN_CONDITION_CODES = Object.keys(CONDITIONS);
+
+
+// ---------------------------------------------------------------------------
+// Open-Meteo — kept alive as the fallback until WeatherKit has made a real call.
+//
+// The WMO mapping lives here rather than in trail-detail.tsx so that BOTH
+// providers answer the same question in one place. It previously existed as two
+// threshold cascades inside the screen, which is how the `wet` classification
+// came to be re-derived by regex over English prose downstream.
+// ---------------------------------------------------------------------------
+
+/**
+ * WMO code -> the same ConditionInfo shape WeatherKit produces.
+ *
+ * `wet` follows the same rule as the WeatherKit table: what the sky does to the
+ * ground, not what the word looks like. Fog (45/48) wets surfaces; the clear and
+ * cloud codes do not.
+ */
+export function conditionFromWmo(code: number): ConditionInfo {
+  // Guard FIRST. Without this, a negative or non-finite code slips into the
+  // `code <= 2` branch below and is reported as "Partly cloudy", dry -- the
+  // exact silent fair-weather claim this function exists to avoid. It is
+  // reachable in practice: currentFromOpenMeteo passes -1 whenever
+  // `weather_code` is missing from the response. Caught by its own test.
+  if (!Number.isFinite(code) || code < 0) {
+    return { icon: "🌧️", label: "Unsettled", wet: true };
+  }
+  if (code === 0) return { icon: "☀️", label: "Clear", wet: false };
+  if (code <= 2) return { icon: "🌤️", label: "Partly cloudy", wet: false };
+  if (code === 3) return { icon: "☁️", label: "Overcast", wet: false };
+  if (code === 45 || code === 48) return { icon: "🌫️", label: "Fog", wet: true };
+  if (code >= 51 && code <= 57) return { icon: "🌦️", label: "Drizzle", wet: true };
+  if (code >= 61 && code <= 67) return { icon: "🌧️", label: "Rain", wet: true };
+  if (code >= 71 && code <= 77) return { icon: "❄️", label: "Snow", wet: true };
+  if (code >= 80 && code <= 82) return { icon: "🌦️", label: "Rain showers", wet: true };
+  if (code >= 85 && code <= 86) return { icon: "🌨️", label: "Snow showers", wet: true };
+  if (code >= 95) return { icon: "⛈️", label: "Thunderstorm", wet: true };
+  // Same fail-safe as the WeatherKit path: an unrecognised code is treated as
+  // wet rather than quietly reported as fair.
+  return { icon: "🌧️", label: "Unsettled", wet: true };
+}
+
+type OpenMeteoCurrent = {
+  temperature_2m?: number;
+  apparent_temperature?: number;
+  relative_humidity_2m?: number;
+  wind_speed_10m?: number;
+  weather_code?: number;
+};
+
+/**
+ * Open-Meteo current -> Weather.
+ *
+ * No unit conversion: Open-Meteo converts server-side from the request
+ * parameters, and humidity already arrives as a percentage. That asymmetry with
+ * WeatherKit is exactly what makes this a migration rather than a URL swap.
+ */
+export function currentFromOpenMeteo(c: OpenMeteoCurrent): Weather {
+  const info = conditionFromWmo(c.weather_code ?? -1);
+  return {
+    temp: Math.round(c.temperature_2m ?? 0),
+    feelsLike: Math.round(c.apparent_temperature ?? c.temperature_2m ?? 0),
+    condition: info.label,
+    icon: info.icon,
+    wet: info.wet,
+    windSpeed: Math.round(c.wind_speed_10m ?? 0),
+    humidity: Math.round(c.relative_humidity_2m ?? 0),
+  };
+}
+
+type OpenMeteoDaily = {
+  time?: string[];
+  weather_code?: number[];
+  temperature_2m_max?: number[];
+  temperature_2m_min?: number[];
+};
+
+/**
+ * Open-Meteo daily -> the 7-day strip.
+ *
+ * Open-Meteo returns PARALLEL ARRAYS rather than objects, so the length is
+ * driven by `time` and every other array is read positionally. A short or
+ * ragged array yields a day with missing numbers rather than throwing, which
+ * matters because this is the fallback path -- it must degrade, not crash.
+ */
+export function dailyFromOpenMeteo(d: OpenMeteoDaily): DailyForecast[] {
+  const days = d?.time ?? [];
+  return days.slice(0, 7).map((date, i) => {
+    const info = conditionFromWmo(d.weather_code?.[i] ?? -1);
+    return {
+      date,
+      high: Math.round(d.temperature_2m_max?.[i] ?? 0),
+      low: Math.round(d.temperature_2m_min?.[i] ?? 0),
+      condition: info.label,
+      icon: info.icon,
+      wet: info.wet,
+    };
+  });
+}
+
+/**
+ * "Today" or a short weekday, from a YYYY-MM-DD key.
+ *
+ * Parsed from PARTS, never `new Date(key)`. A bare date string is parsed as UTC
+ * by spec, so west of Greenwich `new Date("2026-09-05").getDay()` returns the
+ * previous weekday — the same class of bug the activity heatmap had to avoid,
+ * and it would silently mislabel every column in the strip.
+ */
+export function weekdayLabel(dateKey: string, today: Date): string {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const local = new Date(y, m - 1, d);
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  if (dateKey === todayKey) return "Today";
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][local.getDay()];
+}

@@ -6,6 +6,11 @@ import { Image } from "expo-image";
 import { signedUrlsFor } from "@/lib/upload";
 import { readTrailDetail, writeTrailDetail, cacheAgeLabel } from "@/lib/offlineCache";
 import {
+  currentFromOpenMeteo, dailyFromOpenMeteo, currentFromWeatherKit, dailyFromWeatherKit,
+  weekdayLabel,
+  type Weather, type DailyForecast,
+} from "@/lib/weather";
+import {
   ActivityIndicator,
   Linking,
   Pressable,
@@ -43,10 +48,6 @@ type Trail = {
   attribution: string | null; license: string | null; source_url: string | null;
 };
 
-type Weather = {
-  temp: number; feelsLike: number; condition: string;
-  windSpeed: number; humidity: number; icon: string;
-};
 
 
 function getWeatherIcon(wmo: number): string {
@@ -91,6 +92,11 @@ export default function TrailDetailScreen() {
   // Non-null means the screen is showing REMEMBERED data, not live. Drives the
   // banner -- cached content is never presented as current.
   const [cachedAt, setCachedAt] = useState<number | null>(null);
+  const [forecast, setForecast] = useState<DailyForecast[]>([]);
+  // Which provider actually answered. Attribution follows the DATA, so this
+  // cannot be inferred from config -- a WeatherKit outage that falls back to
+  // Open-Meteo must still credit Open-Meteo.
+  const [weatherSource, setWeatherSource] = useState<"weatherkit" | "open-meteo" | null>(null);
 
   /**
    * Photos from this trail's hikes, best first.
@@ -235,22 +241,63 @@ export default function TrailDetailScreen() {
     if (coords) fetchWeather(coords.lat, coords.lng, distanceUnit);
   }, [coords, distanceUnit]);
 
+  /**
+   * WeatherKit first, Open-Meteo as the fallback.
+   *
+   * The fallback is not defensive padding -- it is the migration strategy. Until
+   * a real WeatherKit call has succeeded against real credentials, Open-Meteo is
+   * the only path proven to work, so it stays wired up and a WeatherKit failure
+   * of ANY kind (not deployed, unconfigured, 401, network) degrades silently to
+   * it rather than showing an empty card.
+   *
+   * Once WeatherKit is verified live, the Open-Meteo half and its two
+   * attribution sites come out together.
+   */
   const fetchWeather = async (lat: number, lng: number, unit: DistanceUnit) => {
     setWeatherLoading(true);
+
+    // Apple rolls the daily forecast up against this zone, and it is a REQUIRED
+    // query parameter on the weather endpoint (dataSets, counter-intuitively, is
+    // not). The device zone is the right one: it is where the reader is planning
+    // from. UTC is the floor if the runtime cannot say.
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+    try {
+      const { data, error } = await supabase.functions.invoke("weather", {
+        body: { lat, lng, timezone },
+      });
+      if (!error && data?.currentWeather) {
+        setWeather(currentFromWeatherKit(data.currentWeather, unit));
+        setForecast(dailyFromWeatherKit(data.forecastDaily?.days ?? [], unit));
+        setWeatherSource("weatherkit");
+        setWeatherLoading(false);
+        return;
+      }
+      // Not thrown, just noted: on an unconfigured project this is the expected
+      // path every single time, so it must not read as an incident.
+      if (error) console.warn("weather: WeatherKit unavailable, using Open-Meteo", error.message);
+    } catch (e) {
+      console.warn("weather: WeatherKit call threw, using Open-Meteo", e instanceof Error ? e.message : e);
+    }
+
     try {
       const units = openMeteoUnitParams(unit);
-      const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&temperature_unit=${units.temperature}&wind_speed_unit=${units.windSpeed}`);
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+          `&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code` +
+          `&daily=weather_code,temperature_2m_max,temperature_2m_min&forecast_days=7` +
+          `&timezone=auto&temperature_unit=${units.temperature}&wind_speed_unit=${units.windSpeed}`,
+      );
       const data = await res.json();
-      const c = data.current;
-      setWeather({
-        temp: Math.round(c.temperature_2m),
-        feelsLike: Math.round(c.apparent_temperature),
-        condition: getWeatherDesc(c.weather_code),
-        windSpeed: Math.round(c.wind_speed_10m),
-        humidity: c.relative_humidity_2m,
-        icon: getWeatherIcon(c.weather_code),
-      });
-    } catch (_) {}
+      if (data?.current) {
+        setWeather(currentFromOpenMeteo(data.current));
+        setForecast(dailyFromOpenMeteo(data.daily ?? {}));
+        setWeatherSource("open-meteo");
+      }
+    } catch (_) {
+      // Weather is decorative relative to the rest of the screen; a trail with
+      // no forecast still shows its distance, description and photos.
+    }
     setWeatherLoading(false);
   };
 
@@ -427,7 +474,19 @@ export default function TrailDetailScreen() {
                 If the WeatherKit migration lands and Open-Meteo is removed,
                 this goes with it -- and Apple's own attribution replaces it.
                 Removing Open-Meteo means removing BOTH display sites. */}
-            {weather && (
+            {forecast.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.forecastRow}>
+                {forecast.map(day => (
+                  <View key={day.date} style={styles.forecastDay}>
+                    <Text style={styles.forecastLabel}>{weekdayLabel(day.date, new Date())}</Text>
+                    <Text style={styles.forecastIcon}>{day.icon}</Text>
+                    <Text style={styles.forecastHigh}>{day.high}°</Text>
+                    <Text style={styles.forecastLow}>{day.low}°</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+            {weatherSource === "open-meteo" && (
               <Pressable
                 onPress={() => Linking.openURL("https://open-meteo.com/")}
                 hitSlop={8}
@@ -518,7 +577,7 @@ export default function TrailDetailScreen() {
                   provide for someone reading this line. Keyed off tip.source
                   rather than the tip's index, so MAX_TIPS truncation or a
                   reorder cannot detach the credit from the data. */}
-              {tip.source === "open-meteo" && (
+              {tip.source === "open-meteo" && weatherSource === "open-meteo" && (
                 <Pressable
                   onPress={() => Linking.openURL("https://open-meteo.com/")}
                   hitSlop={8}
@@ -565,6 +624,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.border,
   },
   offlineBannerText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12.5, color: Colors.text2, lineHeight: 18 },
+  forecastRow: { gap: 14, paddingHorizontal: 16, paddingTop: 12 },
+  forecastDay: { alignItems: "center", minWidth: 44 },
+  forecastLabel: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.text3, marginBottom: 4 },
+  forecastIcon: { fontSize: 20, marginBottom: 4 },
+  forecastHigh: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
+  forecastLow: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3 },
   weatherCredit: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.accent, marginTop: 8, marginLeft: 4 },
   sourceLink: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.accent, marginTop: 4 },
   headerTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text, flex: 1, textAlign: "center" },
