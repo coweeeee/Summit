@@ -4,6 +4,7 @@ import * as Haptics from "expo-haptics";
 import React, { useEffect, useState } from "react";
 import { Image } from "expo-image";
 import { signedUrlsFor } from "@/lib/upload";
+import { readTrailDetail, writeTrailDetail, cacheAgeLabel } from "@/lib/offlineCache";
 import {
   ActivityIndicator,
   Linking,
@@ -87,6 +88,9 @@ export default function TrailDetailScreen() {
   const [ratingStatsFailed, setRatingStatsFailed] = useState(false);
   const [conditionSummary, setConditionSummary] = useState<SummarisedCondition[]>([]);
   const [highlights, setHighlights] = useState<string[]>([]);
+  // Non-null means the screen is showing REMEMBERED data, not live. Drives the
+  // banner -- cached content is never presented as current.
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
 
   /**
    * Photos from this trail's hikes, best first.
@@ -143,8 +147,43 @@ export default function TrailDetailScreen() {
 
   useEffect(() => {
     const fetchTrail = async () => {
-      const { data } = await supabase.from("trails").select("*").eq("id", id).single();
+      // The error was previously discarded, which is why losing signal produced
+      // "Trail not found" -- a query that never reached the server rendered
+      // identically to a trail that does not exist.
+      const { data, error } = await supabase.from("trails").select("*").eq("id", id).single();
+
+      if (!data) {
+        // Fall back to whatever this device already knows about the trail.
+        // Deliberately attempted for ANY failure rather than only for a
+        // detectable network error: PostgREST reports a missing row and an
+        // unreachable server through the same shape, and remembered-and-labelled
+        // beats a dead end either way.
+        const cached = await readTrailDetail<typeof data>(String(id));
+        if (cached) {
+          setTrail(cached.trail as never);
+          setLogCount(cached.logCount);
+          setConditionSummary(cached.conditionSummary as never);
+          setCachedAt(cached.cachedAt);
+          // The live aggregate could not be fetched, so say so rather than
+          // asserting a fact we do not have. formatRatingDisplay's failed
+          // branch falls back to the catalogue `rating`, which IS cached --
+          // without this the screen rendered "No ratings yet" for a trail
+          // rated 4.6, which is not a missing value, it is a wrong one.
+          setRatingStatsFailed(true);
+          const c = cached.trail as { lat?: number; lng?: number } | null;
+          // Coordinates are restored so the map still has a centre, but weather
+          // is NOT fetched from cache -- see lib/offlineCache.ts. A remembered
+          // "right now" reading would be a false claim.
+          if (c?.lat && c?.lng) setCoords({ lat: c.lat, lng: c.lng });
+        } else if (error) {
+          console.warn("trail-detail: load failed and nothing cached", error.message);
+        }
+        setLoading(false);
+        return;
+      }
+
       if (data) {
+        setCachedAt(null);
         setTrail(data);
         const { count } = await supabase.from("hikes").select("*", { count: "exact", head: true }).eq("trail_id", data.id);
         setLogCount(count || 0);
@@ -162,6 +201,15 @@ export default function TrailDetailScreen() {
         const { map, failed } = await fetchRatingStats([data.id]);
         setRatingStats(map.get(data.id));
         setRatingStatsFailed(failed);
+
+        // Written AFTER a fully successful load, so a partial fetch cannot
+        // poison the cache with a half-populated trail. Fire-and-forget and
+        // non-throwing: the user is already looking at a working screen.
+        void writeTrailDetail(String(id), {
+          trail: data,
+          logCount: count || 0,
+          conditionSummary: summariseConditions(condRows ?? []) as never,
+        });
       }
       if (session) {
         const { data: wth } = await supabase.from("want_to_hike").select("trail_id").eq("user_id", session.user.id).eq("trail_id", id).single();
@@ -254,6 +302,21 @@ export default function TrailDetailScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+        {/* Cached data is LABELLED, never passed off as live. The age is shown
+            rather than a bare "offline" because how stale matters: a trail
+            remembered ten minutes ago is worth trusting on distance and water
+            notes, one from last month is worth a second thought. Photos and
+            weather are absent here by design, not by failure -- signed photo
+            URLs expire in an hour and a remembered forecast would be a false
+            claim about now. */}
+        {cachedAt !== null && (
+          <View style={styles.offlineBanner}>
+            <Feather name="wifi-off" size={13} color={Colors.amber2} />
+            <Text style={styles.offlineBannerText}>
+              Showing saved details from {cacheAgeLabel(cachedAt)} — live weather and photos need a connection.
+            </Text>
+          </View>
+        )}
         <View style={styles.hero}>
           {/* Omitted rather than rendered neutral: an unlabelled difficulty pill
               says less than no pill, and this used to claim "easy". */}
@@ -488,6 +551,13 @@ const styles = StyleSheet.create({
   // Deliberately quieter than weatherCredit: this one sits inline under a tip
   // rather than closing out a section, and only has to satisfy "next to".
   tipCredit: { fontFamily: "Inter_400Regular", fontSize: 10.5, color: Colors.accent, marginLeft: 23, marginTop: 3, marginBottom: 10 },
+  offlineBanner: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    marginHorizontal: 16, marginTop: 12, padding: 12,
+    borderRadius: 12, backgroundColor: Colors.bg3,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  offlineBannerText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12.5, color: Colors.text2, lineHeight: 18 },
   weatherCredit: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.accent, marginTop: 8, marginLeft: 4 },
   sourceLink: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.accent, marginTop: 4 },
   headerTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text, flex: 1, textAlign: "center" },
