@@ -153,12 +153,16 @@ export default function TrailDetailScreen() {
       const { data, error } = await supabase.from("trails").select("*").eq("id", id).single();
 
       if (!data) {
-        // Fall back to whatever this device already knows about the trail.
-        // Deliberately attempted for ANY failure rather than only for a
-        // detectable network error: PostgREST reports a missing row and an
-        // unreachable server through the same shape, and remembered-and-labelled
-        // beats a dead end either way.
-        const cached = await readTrailDetail<typeof data>(String(id));
+        // PGRST116 is PostgREST's "no rows returned" for .single(). That is a
+        // real answer from a server we reached: this trail does not exist, and
+        // showing a remembered copy of it would keep a deleted trail alive on
+        // the device forever, its age label just counting upwards.
+        //
+        // Every other failure -- transport error, 5xx, expired auth -- means we
+        // got no answer at all. There the device's own copy beats a dead end,
+        // which is what "Trail not found" used to be for anyone who lost signal.
+        const trailIsGone = error?.code === "PGRST116";
+        const cached = trailIsGone ? null : await readTrailDetail<typeof data>(String(id));
         if (cached) {
           setTrail(cached.trail as never);
           setLogCount(cached.logCount);
@@ -197,7 +201,10 @@ export default function TrailDetailScreen() {
           .from("trail_conditions_summary")
           .select("tag, prevalence")
           .eq("trail_id", data.id);
-        setConditionSummary(summariseConditions(condRows ?? []));
+        // Summarised once and reused: the screen and the cache must not be able
+        // to disagree about what the conditions were.
+        const conditions = summariseConditions(condRows ?? []);
+        setConditionSummary(conditions);
         const { map, failed } = await fetchRatingStats([data.id]);
         setRatingStats(map.get(data.id));
         setRatingStatsFailed(failed);
@@ -208,7 +215,7 @@ export default function TrailDetailScreen() {
         void writeTrailDetail(String(id), {
           trail: data,
           logCount: count || 0,
-          conditionSummary: summariseConditions(condRows ?? []) as never,
+          conditionSummary: conditions as never,
         });
       }
       if (session) {

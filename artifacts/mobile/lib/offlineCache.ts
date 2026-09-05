@@ -3,7 +3,7 @@
 // Scope is deliberately half of the "offline packs" idea: trail data only, no
 // map tiles. Tiles are a licensing decision (Apple and Google both restrict
 // persisting their tiles) and a basemap migration; trail rows are ours, carry no
-// third-party terms, and the whole 225-trail catalogue serialises to ~117 KB.
+// third-party terms, and the whole 225-trail catalogue serialises to ~175 KB.
 // See docs/feature-backlog-design-notes.md item 2.
 //
 // WHAT IS DELIBERATELY NOT CACHED, because caching it would be worse than the
@@ -20,9 +20,10 @@
 //   "invented specifics are dangerous"). Weather is live-or-absent.
 //
 // NO EVICTION, and that is a considered choice rather than an omission. The
-// corpus is bounded: 225 trails at roughly half a kilobyte each is ~117 KB even
-// if a user visits every one. An LRU would be more code than the thing it
-// guards, and would itself be a source of bugs.
+// corpus is bounded: a real entry measured on device is 798 bytes, so 225
+// trails is ~175 KB even if a user visits every one. An LRU would be more code
+// than the thing it guards, and would itself be a source of bugs. Re-measure
+// this if the trails row grows, since it is the whole basis for not evicting.
 
 export type CachedTrailDetail<T = unknown> = {
   trail: T;
