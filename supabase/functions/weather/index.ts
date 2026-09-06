@@ -62,7 +62,22 @@ Deno.serve(async (req) => {
   // does not take it, so anyone extrapolating from a smoke test omits it.
   // IANA name; the client sends the device's, and UTC is a safe floor.
   const timezone = body.timezone || "UTC";
-  const language = body.language || "en";
+
+  // `language` is the ONLY caller-supplied value that reaches the URL PATH
+  // rather than a query parameter, so it gets the same up-front check lat/lng
+  // get. Everything else is either fixed server-side (dataSets, see above) or
+  // goes through searchParams.set, which percent-encodes.
+  //
+  // Without this, the URL constructor happily resolves `..` segments and honours
+  // `?`/`#`, so a caller could steer the request at any path under
+  // weatherkit.apple.com while carrying OUR signed developer token -- and the
+  // upstream body is returned to them verbatim below. A plain malformed value is
+  // the likelier case and was just as bad: an unexplained 4xx from Apple instead
+  // of a 400 that says what is wrong.
+  const language = body.language ?? "en";
+  if (typeof language !== "string" || !/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/.test(language)) {
+    return json({ error: "language must be a BCP-47 tag, e.g. en or en-US" }, 400);
+  }
 
   let token: string;
   try {
