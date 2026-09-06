@@ -149,6 +149,15 @@ importers:
 
   .:
     devDependencies:
+      '@babel/generator':
+        specifier: ^7.29.1
+        version: 7.29.1
+      '@babel/traverse':
+        specifier: ^7.29.0
+        version: 7.29.0(supports-color@8.1.1)
+      '@babel/types':
+        specifier: ^7.29.0
+        version: 7.29.0
       '@expo/config-plugins':
         specifier: ~54.0.4
         version: 54.0.4(supports-color@8.1.1)

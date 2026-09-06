@@ -10,6 +10,9 @@
   },
   "private": true,
   "devDependencies": {
+    "@babel/generator": "^7.29.1",
+    "@babel/traverse": "^7.29.0",
+    "@babel/types": "^7.29.0",
     "@expo/config-plugins": "~54.0.4",
     "prettier": "^3.8.1",
     "typescript": "~5.9.2"
