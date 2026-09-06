@@ -18,14 +18,25 @@
 
 import type { DistanceUnit } from "./units.ts";
 
-/** The shape the UI consumes, whichever provider produced it. */
+/**
+ * The shape the UI consumes, whichever provider produced it.
+ *
+ * NUMERIC READINGS ARE NULLABLE, and that is the whole point of the type.
+ * Every one of these can legitimately be absent from a provider response, and
+ * a missing reading defaulted to 0 renders identically to a real 0 — "0°" and
+ * "0%" on the card, indistinguishable from a genuine freezing, bone-dry
+ * reading. This is the same 0-vs-null mistake CLAUDE.md records for
+ * hikes.elevation_ft, and the same rule lib/trailTips.ts states: derive from
+ * data, never invent a specific. Null propagates all the way to the render,
+ * which shows an em dash instead of a fabricated number.
+ */
 export type Weather = {
-  temp: number;
-  feelsLike: number;
+  temp: number | null;
+  feelsLike: number | null;
   condition: string;
-  windSpeed: number;
+  windSpeed: number | null;
   /** Percentage, 0-100 — already normalised, ready to render with a '%'. */
-  humidity: number;
+  humidity: number | null;
   icon: string;
   /**
    * Whether footing/visibility is affected. Carried explicitly rather than
@@ -42,16 +53,29 @@ export type Weather = {
   wet: boolean;
 };
 
-/** One day of the 7-day outlook. */
+/** One day of the 7-day outlook. Highs and lows are nullable for the reason above. */
 export type DailyForecast = {
   /** Local calendar day, YYYY-MM-DD. */
   date: string;
-  high: number;
-  low: number;
+  high: number | null;
+  low: number | null;
   condition: string;
   icon: string;
   wet: boolean;
 };
+
+/**
+ * Convert only when the provider actually gave a reading.
+ *
+ * Exists so no call site has to write `x == null ? null : Math.round(f(x))` and
+ * get it subtly wrong — an earlier version of this file used `?? 0` at seven
+ * call sites and every one of them was a fabricated reading.
+ */
+function reading(v: number | null | undefined, convert: (n: number) => number): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? Math.round(convert(v)) : null;
+}
+
+const asIs = (n: number) => n;
 
 type ConditionInfo = { icon: string; label: string; wet: boolean };
 
@@ -145,19 +169,21 @@ type WeatherKitCurrent = {
 export function currentFromWeatherKit(raw: WeatherKitCurrent, unit: DistanceUnit): Weather {
   const info = conditionFromCode(raw.conditionCode ?? "");
   const imperial = unit === "imperial";
-  const tempC = raw.temperature ?? 0;
-  const feelsC = raw.temperatureApparent ?? tempC;
-  const windKmh = raw.windSpeed ?? 0;
+  const temp = imperial ? celsiusToFahrenheit : asIs;
+  const wind = imperial ? kmhToMph : asIs;
+  // `temperatureApparent` falling back to `temperature` is a real equivalence --
+  // absent an apparent temperature, the dry-bulb reading IS the best available
+  // answer. That is different from inventing a number, so it stays.
   return {
-    temp: Math.round(imperial ? celsiusToFahrenheit(tempC) : tempC),
-    feelsLike: Math.round(imperial ? celsiusToFahrenheit(feelsC) : feelsC),
+    temp: reading(raw.temperature, temp),
+    feelsLike: reading(raw.temperatureApparent ?? raw.temperature, temp),
     condition: info.label,
     icon: info.icon,
     wet: info.wet,
-    windSpeed: Math.round(imperial ? kmhToMph(windKmh) : windKmh),
+    windSpeed: reading(raw.windSpeed, wind),
     // 0..1 -> 0..100. The card renders `{humidity}%`, so the raw fraction would
     // print "0.67%".
-    humidity: Math.round((raw.humidity ?? 0) * 100),
+    humidity: reading(raw.humidity, h => h * 100),
   };
 }
 
@@ -184,12 +210,11 @@ export function dailyFromWeatherKit(days: WeatherKitDay[], unit: DistanceUnit): 
   const imperial = unit === "imperial";
   return (days ?? []).slice(0, 7).map(d => {
     const info = conditionFromCode(d.conditionCode ?? "");
-    const hi = d.temperatureMax ?? 0;
-    const lo = d.temperatureMin ?? 0;
+    const temp = imperial ? celsiusToFahrenheit : asIs;
     return {
       date: (d.forecastStart ?? "").slice(0, 10),
-      high: Math.round(imperial ? celsiusToFahrenheit(hi) : hi),
-      low: Math.round(imperial ? celsiusToFahrenheit(lo) : lo),
+      high: reading(d.temperatureMax, temp),
+      low: reading(d.temperatureMin, temp),
       condition: info.label,
       icon: info.icon,
       wet: info.wet,
@@ -259,13 +284,13 @@ type OpenMeteoCurrent = {
 export function currentFromOpenMeteo(c: OpenMeteoCurrent): Weather {
   const info = conditionFromWmo(c.weather_code ?? -1);
   return {
-    temp: Math.round(c.temperature_2m ?? 0),
-    feelsLike: Math.round(c.apparent_temperature ?? c.temperature_2m ?? 0),
+    temp: reading(c.temperature_2m, asIs),
+    feelsLike: reading(c.apparent_temperature ?? c.temperature_2m, asIs),
     condition: info.label,
     icon: info.icon,
     wet: info.wet,
-    windSpeed: Math.round(c.wind_speed_10m ?? 0),
-    humidity: Math.round(c.relative_humidity_2m ?? 0),
+    windSpeed: reading(c.wind_speed_10m, asIs),
+    humidity: reading(c.relative_humidity_2m, asIs),
   };
 }
 
@@ -290,8 +315,8 @@ export function dailyFromOpenMeteo(d: OpenMeteoDaily): DailyForecast[] {
     const info = conditionFromWmo(d.weather_code?.[i] ?? -1);
     return {
       date,
-      high: Math.round(d.temperature_2m_max?.[i] ?? 0),
-      low: Math.round(d.temperature_2m_min?.[i] ?? 0),
+      high: reading(d.temperature_2m_max?.[i], asIs),
+      low: reading(d.temperature_2m_min?.[i], asIs),
       condition: info.label,
       icon: info.icon,
       wet: info.wet,

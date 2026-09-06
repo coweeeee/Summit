@@ -222,7 +222,10 @@ describe("dailyFromOpenMeteo — parallel arrays", () => {
     assert.deepEqual(dailyFromOpenMeteo({}), []);
     const ragged = dailyFromOpenMeteo({ time: ["2026-09-05"] });
     assert.equal(ragged.length, 1);
-    assert.equal(ragged[0].high, 0);
+    // Null, NOT 0. A ragged array means the provider did not send a high for
+    // this day; rendering "0°" would state a freezing forecast it never made.
+    assert.equal(ragged[0].high, null);
+    assert.equal(ragged[0].low, null);
   });
 });
 
@@ -238,5 +241,79 @@ describe("weekdayLabel", () => {
 
   test("a malformed key yields an empty label rather than 'Invalid Date'", () => {
     assert.equal(weekdayLabel("", new Date()), "");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A missing reading must stay missing.
+//
+// Every one of these fields used to default to 0, which renders as "0°" / "0%"
+// — indistinguishable on the card from a genuine freezing, bone-dry reading.
+// That is the 0-vs-null trap CLAUDE.md records for hikes.elevation_ft, and the
+// invented-specific that lib/trailTips.ts exists to forbid. These tests pin the
+// absence, one per conversion function, so a future `?? 0` fails here loudly.
+
+describe("missing readings propagate as null, never as a fabricated 0", () => {
+  test("currentFromWeatherKit — an empty payload yields nulls, not zeroes", () => {
+    const w = currentFromWeatherKit({ conditionCode: "clear" }, "imperial");
+    assert.equal(w.temp, null);
+    assert.equal(w.feelsLike, null);
+    assert.equal(w.windSpeed, null);
+    assert.equal(w.humidity, null);
+    // The non-numeric half still resolves — a missing temperature must not cost
+    // the reader the condition or the wet flag.
+    assert.equal(w.condition, "Clear");
+    assert.equal(w.wet, false);
+  });
+
+  test("currentFromWeatherKit — a real 0°C survives and is NOT treated as missing", () => {
+    // The whole point of the distinction: freezing is a reading, not an absence.
+    const metric = currentFromWeatherKit({ conditionCode: "clear", temperature: 0, humidity: 0 }, "metric");
+    assert.equal(metric.temp, 0);
+    assert.equal(metric.humidity, 0);
+    const imperial = currentFromWeatherKit({ conditionCode: "clear", temperature: 0 }, "imperial");
+    assert.equal(imperial.temp, 32);
+  });
+
+  test("currentFromWeatherKit — feelsLike falls back to temperature, which is a real equivalence", () => {
+    const w = currentFromWeatherKit({ conditionCode: "clear", temperature: 10 }, "metric");
+    assert.equal(w.feelsLike, 10);
+  });
+
+  test("dailyFromWeatherKit — a day missing its high/low reports null for both", () => {
+    const days = dailyFromWeatherKit([{ forecastStart: "2026-09-05T00:00:00Z", conditionCode: "rain" }], "imperial");
+    assert.equal(days[0].high, null);
+    assert.equal(days[0].low, null);
+    assert.equal(days[0].condition, "Rain");
+    assert.equal(days[0].wet, true);
+  });
+
+  test("currentFromOpenMeteo — an empty payload yields nulls, not zeroes", () => {
+    const w = currentFromOpenMeteo({});
+    assert.equal(w.temp, null);
+    assert.equal(w.feelsLike, null);
+    assert.equal(w.windSpeed, null);
+    assert.equal(w.humidity, null);
+  });
+
+  test("currentFromOpenMeteo — a real 0 survives", () => {
+    const w = currentFromOpenMeteo({ temperature_2m: 0, relative_humidity_2m: 0, wind_speed_10m: 0 });
+    assert.equal(w.temp, 0);
+    assert.equal(w.humidity, 0);
+    assert.equal(w.windSpeed, 0);
+  });
+
+  test("dailyFromOpenMeteo — a day whose arrays are short reports null highs and lows", () => {
+    const days = dailyFromOpenMeteo({ time: ["2026-09-05", "2026-09-06"], temperature_2m_max: [70] });
+    assert.equal(days[0].high, 70);
+    assert.equal(days[1].high, null);
+    assert.equal(days[1].low, null);
+  });
+
+  test("a non-finite reading is treated as missing, not rendered as NaN", () => {
+    // JSON cannot carry NaN, but a provider can send a value that arrives as one
+    // after arithmetic; "NaN°" on the card would be worse than a gap.
+    const w = currentFromWeatherKit({ conditionCode: "clear", temperature: Number.NaN }, "metric");
+    assert.equal(w.temp, null);
   });
 });

@@ -44,8 +44,19 @@ export type TipTrail = {
 };
 
 export type TipWeather = {
-  temp: number;
+  /** Null when the provider did not report one — the tip then omits the degrees. */
+  temp: number | null;
   condition: string;
+  /**
+   * Supplied by the caller, never re-derived here.
+   *
+   * This used to be `/rain|snow|shower|thunder|drizzle/i.test(condition)`, run
+   * over the English label. Against WeatherKit's vocabulary that reads hail,
+   * sleet, wintryMix, hurricane and tropicalStorm as DRY — the "expect slick
+   * footing" line vanished in exactly the conditions that most warrant it.
+   * lib/weather.ts computes this per condition code instead; see its comment.
+   */
+  wet: boolean;
 } | null;
 
 const MAX_TIPS = 4;
@@ -138,13 +149,18 @@ function tagTips(trail: TipTrail): TrailTip[] {
 
 function weatherTip(weather: TipWeather, unit: DistanceUnit): TrailTip | null {
   if (!weather) return null;
-  const degrees = `${weather.temp}${unit === "metric" ? "°C" : "°F"}`;
-  const wet = /rain|snow|shower|thunder|drizzle/i.test(weather.condition);
+  const condition = weather.condition.toLowerCase();
+  // A missing temperature drops the degrees rather than printing a fabricated
+  // one. The condition on its own is still worth saying, so the tip survives.
+  const lead =
+    weather.temp === null
+      ? condition.charAt(0).toUpperCase() + condition.slice(1)
+      : `${weather.temp}${unit === "metric" ? "°C" : "°F"} and ${condition}`;
   return {
     icon: "cloud",
-    text: wet
-      ? `${degrees} and ${weather.condition.toLowerCase()} right now — pack layers and expect slick footing.`
-      : `${degrees} and ${weather.condition.toLowerCase()} at the trailhead right now.`,
+    text: weather.wet
+      ? `${lead} right now — pack layers and expect slick footing.`
+      : `${lead} at the trailhead right now.`,
     // This line IS Open-Meteo data, so it is an attribution site in its own
     // right. Covered by a test, because dropping this marker would silently
     // remove a licence-required credit from the screen.

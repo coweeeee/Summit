@@ -429,13 +429,20 @@ export default function TrailDetailScreen() {
               <View style={styles.weatherCard}>
                 <Text style={styles.weatherIcon}>{weather.icon}</Text>
                 <View style={styles.weatherInfo}>
-                  <Text style={styles.weatherTemp}>{weather.temp}{temperatureUnitLabel(distanceUnit)}</Text>
+                  {/* An em dash, never a 0. A provider that omits a reading gets
+                      an honest gap -- "0°" and "0%" are indistinguishable from a
+                      real freezing, bone-dry measurement, which is the same
+                      0-vs-null trap CLAUDE.md records for hikes.elevation_ft.
+                      The unit label goes with the number, so it drops too. */}
+                  <Text style={styles.weatherTemp}>{weather.temp === null ? "—" : `${weather.temp}${temperatureUnitLabel(distanceUnit)}`}</Text>
                   <Text style={styles.weatherCondition}>{weather.condition}</Text>
-                  <Text style={styles.weatherSub}>Feels like {weather.feelsLike}{temperatureUnitLabel(distanceUnit)}</Text>
+                  {weather.feelsLike !== null && (
+                    <Text style={styles.weatherSub}>Feels like {weather.feelsLike}{temperatureUnitLabel(distanceUnit)}</Text>
+                  )}
                 </View>
                 <View style={styles.weatherStats}>
-                  <View style={styles.weatherStat}><Feather name="wind" size={13} color={Colors.text3} /><Text style={styles.weatherStatText}>{weather.windSpeed} {windSpeedUnitLabel(distanceUnit)}</Text></View>
-                  <View style={styles.weatherStat}><Feather name="droplet" size={13} color={Colors.text3} /><Text style={styles.weatherStatText}>{weather.humidity}%</Text></View>
+                  <View style={styles.weatherStat}><Feather name="wind" size={13} color={Colors.text3} /><Text style={styles.weatherStatText}>{weather.windSpeed === null ? "—" : `${weather.windSpeed} ${windSpeedUnitLabel(distanceUnit)}`}</Text></View>
+                  <View style={styles.weatherStat}><Feather name="droplet" size={13} color={Colors.text3} /><Text style={styles.weatherStatText}>{weather.humidity === null ? "—" : `${weather.humidity}%`}</Text></View>
                 </View>
               </View>
             )}
@@ -480,8 +487,8 @@ export default function TrailDetailScreen() {
                   <View key={day.date} style={styles.forecastDay}>
                     <Text style={styles.forecastLabel}>{weekdayLabel(day.date, new Date())}</Text>
                     <Text style={styles.forecastIcon}>{day.icon}</Text>
-                    <Text style={styles.forecastHigh}>{day.high}°</Text>
-                    <Text style={styles.forecastLow}>{day.low}°</Text>
+                    <Text style={styles.forecastHigh}>{day.high === null ? "—" : `${day.high}°`}</Text>
+                    <Text style={styles.forecastLow}>{day.low === null ? "—" : `${day.low}°`}</Text>
                   </View>
                 ))}
               </ScrollView>
@@ -564,7 +571,11 @@ export default function TrailDetailScreen() {
           {/* Derived per trail from distance, elevation, tags and the live
               weather above. These were three identical literals on all 225
               trails before. */}
-          {buildTrailTips(trail, distanceUnit, weather ? { temp: weather.temp, condition: weather.condition } : null).map(tip => (
+          {/* `wet` is passed through rather than left for trailTips to re-derive
+              from the condition string: lib/weather.ts sets it per condition
+              code, which is the only place hail/sleet/wintryMix are correctly
+              classified as wet. */}
+          {buildTrailTips(trail, distanceUnit, weather ? { temp: weather.temp, condition: weather.condition, wet: weather.wet } : null).map(tip => (
             <View key={tip.text}>
               <View style={styles.tipRow}>
                 <Feather name={tip.icon} size={15} color={Colors.text3} />
