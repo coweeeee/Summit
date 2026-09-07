@@ -13,6 +13,8 @@ import {
   dailyFromOpenMeteo,
   weekdayLabel,
   forecastDayAccessibilityLabel,
+  currentConditionsAccessibilityLabel,
+  localDateKey,
 } from "../weather.ts";
 
 // Apple's WeatherCondition enum, transcribed from
@@ -421,5 +423,134 @@ describe("forecastDayAccessibilityLabel", () => {
     );
     assert.ok(label.trim().length > 0);
     assert.equal(label, "temperature not available");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Day boundaries belong to the trail's timezone, not to UTC.
+//
+// WeatherKit rolls its daily forecast up against the timezone the request
+// carries, and reports forecastStart as that local midnight expressed in UTC.
+// Slicing the ISO string therefore reads the UTC date, which is a DIFFERENT day
+// for part of every day at any non-zero offset — mislabelling every column in
+// the strip, visibly and in the spoken label.
+
+describe("localDateKey", () => {
+  test("a positive offset: the local day is already tomorrow before UTC midnight", () => {
+    // 16:00Z on the 7th is 00:00 on the 8th in Singapore (UTC+8) — which is
+    // exactly the local midnight WeatherKit reports for the 8th.
+    assert.equal(localDateKey("2026-09-07T16:00:00Z", "Asia/Singapore"), "2026-09-08");
+    // The bug this replaces:
+    assert.equal("2026-09-07T16:00:00Z".slice(0, 10), "2026-09-07");
+  });
+
+  test("a positive offset, a few hours before UTC midnight", () => {
+    assert.equal(localDateKey("2026-09-07T22:30:00Z", "Asia/Tokyo"), "2026-09-08");
+    assert.equal(localDateKey("2026-09-07T21:00:00Z", "Australia/Sydney"), "2026-09-08");
+  });
+
+  test("a negative offset goes the other way, so this is not a one-directional patch", () => {
+    // 02:00Z on the 8th is still the 7th in California.
+    assert.equal(localDateKey("2026-09-08T02:00:00Z", "America/Los_Angeles"), "2026-09-07");
+    assert.equal("2026-09-08T02:00:00Z".slice(0, 10), "2026-09-08");
+  });
+
+  test("UTC itself is unchanged, so trails at offset zero are unaffected", () => {
+    assert.equal(localDateKey("2026-09-08T00:00:00Z", "UTC"), "2026-09-08");
+    assert.equal(localDateKey("2026-09-08T23:59:59Z", "UTC"), "2026-09-08");
+  });
+
+  test("a half-hour offset zone still lands on the right day", () => {
+    // Kathmandu is UTC+5:45 — the kind of zone an offset-in-hours shortcut breaks.
+    assert.equal(localDateKey("2026-09-07T18:20:00Z", "Asia/Kathmandu"), "2026-09-08");
+  });
+
+  test("an unusable timezone falls back to the UTC slice rather than throwing", () => {
+    // Hermes' Intl support varies by platform. The fallback is exactly the old
+    // behaviour — wrong in the same way it was before, never a crash.
+    assert.equal(localDateKey("2026-09-08T12:00:00Z", "Not/AZone"), "2026-09-08");
+  });
+
+  test("empty and unparseable inputs yield an empty key, not an invalid date", () => {
+    assert.equal(localDateKey("", "UTC"), "");
+    assert.equal(localDateKey("not a date", "UTC"), "");
+  });
+});
+
+describe("dailyFromWeatherKit uses the request's timezone for day boundaries", () => {
+  const day = { forecastStart: "2026-09-07T16:00:00Z", temperatureMax: 20, temperatureMin: 10, conditionCode: "clear" };
+
+  test("the key is the trail's local day, not UTC's", () => {
+    assert.equal(dailyFromWeatherKit([day], "metric", "Asia/Singapore")[0].date, "2026-09-08");
+  });
+
+  test("the same payload keys differently in a different zone — the zone is load-bearing", () => {
+    assert.equal(dailyFromWeatherKit([day], "metric", "UTC")[0].date, "2026-09-07");
+  });
+
+  test("and the spoken weekday follows, which is what a blind user hears", () => {
+    // 2026-09-08 is a Tuesday; 2026-09-07 is a Monday. Getting the zone wrong
+    // announced the wrong day of the week for every column.
+    const SAT = new Date(2026, 8, 5, 12, 0, 0);
+    const sg = dailyFromWeatherKit([day], "metric", "Asia/Singapore")[0];
+    const utc = dailyFromWeatherKit([day], "metric", "UTC")[0];
+    assert.match(forecastDayAccessibilityLabel(sg, SAT, "metric"), /^Tuesday,/);
+    assert.match(forecastDayAccessibilityLabel(utc, SAT, "metric"), /^Monday,/);
+  });
+
+  test("defaults to UTC when no zone is passed, preserving old behaviour for existing callers", () => {
+    assert.equal(dailyFromWeatherKit([day], "metric")[0].date, "2026-09-07");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The current-conditions card's screen-reader label. Same shape as the strip's.
+
+describe("currentConditionsAccessibilityLabel", () => {
+  const w = (over: Partial<Parameters<typeof currentConditionsAccessibilityLabel>[0]> = {}) => ({
+    temp: 40, feelsLike: 27, condition: "Clear", windSpeed: 24, humidity: 66, icon: "☀️", wet: false,
+    ...over,
+  });
+
+  test("names wind and humidity, which were announced as bare numbers", () => {
+    assert.equal(
+      currentConditionsAccessibilityLabel(w(), "imperial"),
+      "Current conditions: 40 degrees Fahrenheit, clear, feels like 27, wind 24 miles per hour, humidity 66 percent",
+    );
+  });
+
+  test("follows the unit the reading was converted into", () => {
+    const label = currentConditionsAccessibilityLabel(w(), "metric");
+    assert.match(label, /degrees Celsius/);
+    assert.match(label, /kilometres per hour/);
+  });
+
+  test("spells units out rather than relying on °F or km\\/h being read aloud", () => {
+    const label = currentConditionsAccessibilityLabel(w(), "imperial");
+    assert.doesNotMatch(label, /°|km\/h|mph/);
+  });
+
+  test("omits a missing reading rather than speaking a fabricated zero", () => {
+    const label = currentConditionsAccessibilityLabel(w({ windSpeed: null, humidity: null }), "imperial");
+    assert.doesNotMatch(label, /wind|humidity/);
+    assert.match(label, /40 degrees Fahrenheit, clear, feels like 27/);
+  });
+
+  test("a real 0 is still spoken", () => {
+    assert.match(currentConditionsAccessibilityLabel(w({ humidity: 0, windSpeed: 0 }), "imperial"), /wind 0 miles per hour, humidity 0 percent/);
+  });
+
+  test("says so when there is nothing to report, rather than announcing nothing", () => {
+    assert.equal(
+      currentConditionsAccessibilityLabel(
+        { temp: null, feelsLike: null, condition: "", windSpeed: null, humidity: null, icon: "", wet: false },
+        "imperial",
+      ),
+      "Current conditions unavailable",
+    );
+  });
+
+  test("never announces the emoji", () => {
+    assert.doesNotMatch(currentConditionsAccessibilityLabel(w({ icon: "🌧️" }), "imperial"), /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
   });
 });

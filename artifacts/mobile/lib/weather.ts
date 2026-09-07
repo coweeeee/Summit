@@ -16,7 +16,7 @@
 // Verified against Apple's DocC JSON:
 //   https://developer.apple.com/tutorials/data/documentation/weatherkit/weathercondition.json
 
-import { temperatureUnitSpoken, type DistanceUnit } from "./units.ts";
+import { temperatureUnitSpoken, windSpeedUnitSpoken, type DistanceUnit } from "./units.ts";
 
 /**
  * The shape the UI consumes, whichever provider produced it.
@@ -195,24 +195,66 @@ type WeatherKitDay = {
 };
 
 /**
+ * The calendar date an instant falls on IN A GIVEN ZONE, as YYYY-MM-DD.
+ *
+ * Slicing an ISO string gives the UTC date, which is a different day from the
+ * local one for part of every day at any non-zero offset. WeatherKit rolls its
+ * daily forecast up against the timezone the request carries and reports
+ * forecastStart as that local midnight expressed in UTC -- so at UTC+8, the day
+ * beginning 2026-09-08 local arrives as "2026-09-07T16:00:00Z" and slicing
+ * names it the 7th. Every column in the strip is then labelled with the
+ * previous weekday, visibly and in the spoken label.
+ *
+ * Falls back to the slice if the runtime cannot do zoned formatting. Hermes'
+ * Intl support varies by platform and build, and a wrong-but-unchanged label is
+ * better than a crash or an empty one -- the fallback is exactly today's
+ * behaviour.
+ */
+export function localDateKey(instantIso: string, timeZone: string): string {
+  if (!instantIso) return "";
+  const t = Date.parse(instantIso);
+  if (Number.isNaN(t)) return "";
+  try {
+    // en-CA renders as YYYY-MM-DD, which is the shape the rest of the app keys
+    // on -- built from parts rather than trusting the locale's separator.
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date(t));
+    const y = parts.find(p => p.type === "year")?.value;
+    const m = parts.find(p => p.type === "month")?.value;
+    const d = parts.find(p => p.type === "day")?.value;
+    if (y && m && d) return `${y}-${m}-${d}`;
+  } catch {
+    /* no zoned formatting available — fall through */
+  }
+  return instantIso.slice(0, 10);
+}
+
+/**
  * WeatherKit forecastDaily -> the 7-day strip.
  *
  * Sliced to 7 rather than assuming the response length: Apple returns 10 days
  * when dailyStart/dailyEnd are omitted, so a UI built for 7 would otherwise
  * silently grow.
  *
- * The date key is taken from forecastStart's DATE PORTION as sent. The request
- * carries the trail's timezone, so Apple has already rolled these up against
- * that zone -- re-deriving a local day on the device would re-timezone a value
- * that is already correct for the trail.
+ * `timeZone` is the SAME zone the request sent to Apple. It has to be, because
+ * the day boundaries in the response were computed against it -- see
+ * localDateKey for what slicing the raw UTC string got wrong.
  */
-export function dailyFromWeatherKit(days: WeatherKitDay[], unit: DistanceUnit): DailyForecast[] {
+export function dailyFromWeatherKit(
+  days: WeatherKitDay[],
+  unit: DistanceUnit,
+  timeZone: string = "UTC",
+): DailyForecast[] {
   const imperial = unit === "imperial";
   return (days ?? []).slice(0, 7).map(d => {
     const info = conditionFromCode(d.conditionCode ?? "");
     const temp = imperial ? celsiusToFahrenheit : asIs;
     return {
-      date: (d.forecastStart ?? "").slice(0, 10),
+      date: localDateKey(d.forecastStart ?? "", timeZone),
       high: reading(d.temperatureMax, temp),
       low: reading(d.temperatureMin, temp),
       condition: info.label,
@@ -342,6 +384,44 @@ export function weekdayLabel(dateKey: string, today: Date, style: "short" | "lon
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   if (dateKey === todayKey) return "Today";
   return (style === "long" ? WEEKDAYS_LONG : WEEKDAYS_SHORT)[local.getDay()];
+}
+
+/**
+ * What VoiceOver reads for the current-conditions card.
+ *
+ * Same problem the 7-day strip had, one section up: the card renders the emoji,
+ * the temperature, the condition, "Feels like", wind and humidity as separate
+ * nodes, so a screen reader announced six stops of which two were bare numbers
+ * -- "24" with the unit only conveyed by an adjacent wind glyph, and "66%"
+ * with nothing saying it was humidity. Sighted users get that meaning from the
+ * icons; this is the same information said out loud.
+ *
+ * Built the same way as forecastDayAccessibilityLabel deliberately, rather than
+ * inventing a second approach: pure function, omit what is missing rather than
+ * speaking a fabricated zero, units spelled out instead of trusting "°F" and
+ * "km/h" to be read aloud sensibly.
+ *
+ * `unit` is the unit the reading was CONVERTED INTO at fetch time, not the
+ * viewer's current preference. The card is behind the weatherLoading gate so it
+ * cannot currently show a stale reading, but the parameter is the honest one to
+ * take and it keeps this consistent with the strip and the trail tip.
+ */
+export function currentConditionsAccessibilityLabel(weather: Weather, unit: DistanceUnit): string {
+  const parts: string[] = [];
+
+  if (weather.temp !== null) parts.push(`${weather.temp} ${temperatureUnitSpoken(unit)}`);
+  if (weather.condition) parts.push(weather.condition.toLowerCase());
+  // No unit repeated here: it follows the temperature it qualifies, and the
+  // card itself renders "Feels like" only when the value is present.
+  if (weather.feelsLike !== null) parts.push(`feels like ${weather.feelsLike}`);
+  if (weather.windSpeed !== null) parts.push(`wind ${weather.windSpeed} ${windSpeedUnitSpoken(unit)}`);
+  // "66 percent" alone is what a screen reader said before, with the droplet
+  // glyph carrying the meaning for everyone else. Named explicitly now.
+  if (weather.humidity !== null) parts.push(`humidity ${weather.humidity} percent`);
+
+  // Never empty: a card with every reading missing still says why it is blank
+  // rather than announcing nothing at all.
+  return parts.length ? `Current conditions: ${parts.join(", ")}` : "Current conditions unavailable";
 }
 
 /**

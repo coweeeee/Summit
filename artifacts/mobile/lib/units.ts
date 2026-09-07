@@ -86,6 +86,15 @@ export function windSpeedUnitLabel(unit: DistanceUnit): string {
   return unit === "metric" ? "km/h" : "mph";
 }
 
+/**
+ * Spoken form of windSpeedUnitLabel. Same reasoning as temperatureUnitSpoken:
+ * "km/h" is read out as "k m slash h" by some screen readers, and "mph" as
+ * three letters. Kept adjacent so the pair cannot drift onto different units.
+ */
+export function windSpeedUnitSpoken(unit: DistanceUnit): string {
+  return unit === "metric" ? "kilometres per hour" : "miles per hour";
+}
+
 /** Open-Meteo's own parameter spellings for the viewer's preference. */
 export function openMeteoUnitParams(unit: DistanceUnit): { temperature: string; windSpeed: string } {
   return unit === "metric"

@@ -8,7 +8,7 @@ import { readTrailDetail, writeTrailDetail, cacheAgeLabel } from "@/lib/offlineC
 import { loadWeatherKitAttribution, type WeatherKitAttribution } from "@/lib/weatherAttribution";
 import {
   currentFromOpenMeteo, dailyFromOpenMeteo, currentFromWeatherKit, dailyFromWeatherKit,
-  weekdayLabel, forecastDayAccessibilityLabel,
+  weekdayLabel, forecastDayAccessibilityLabel, currentConditionsAccessibilityLabel,
   type Weather, type DailyForecast,
 } from "@/lib/weather";
 import {
@@ -283,7 +283,7 @@ export default function TrailDetailScreen() {
       });
       if (!error && data?.currentWeather) {
         setWeather(currentFromWeatherKit(data.currentWeather, unit));
-        setForecast(dailyFromWeatherKit(data.forecastDaily?.days ?? [], unit));
+        setForecast(dailyFromWeatherKit(data.forecastDaily?.days ?? [], unit, timezone));
         setWeatherSource("weatherkit");
         setWeatherUnit(unit);
         // Fire-and-forget, and deliberately NOT awaited: Apple requires this
@@ -448,7 +448,16 @@ export default function TrailDetailScreen() {
             {weatherLoading ? (
               <View style={styles.weatherLoading}><ActivityIndicator color={Colors.accent} size="small" /></View>
             ) : weather && (
-              <View style={styles.weatherCard}>
+              // One stop, not six. The emoji, the two temperatures, the wind
+              // and the humidity were announced separately, and the last two as
+              // bare numbers -- "24" and "66 percent" -- with the wind and
+              // droplet glyphs carrying the meaning for everyone else. Same fix
+              // as the forecast strip below.
+              <View
+                style={styles.weatherCard}
+                accessible
+                accessibilityLabel={currentConditionsAccessibilityLabel(weather, weatherUnit ?? distanceUnit)}
+              >
                 <Text style={styles.weatherIcon}>{weather.icon}</Text>
                 <View style={styles.weatherInfo}>
                   {/* An em dash, never a 0. A provider that omits a reading gets
