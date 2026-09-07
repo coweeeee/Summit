@@ -12,6 +12,7 @@ import {
   currentFromOpenMeteo,
   dailyFromOpenMeteo,
   weekdayLabel,
+  forecastDayAccessibilityLabel,
 } from "../weather.ts";
 
 // Apple's WeatherCondition enum, transcribed from
@@ -315,5 +316,110 @@ describe("missing readings propagate as null, never as a fabricated 0", () => {
     // after arithmetic; "NaN°" on the card would be worse than a gap.
     const w = currentFromWeatherKit({ conditionCode: "clear", temperature: Number.NaN }, "metric");
     assert.equal(w.temp, null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The 7-day strip's screen-reader label.
+//
+// The strip renders four separate Text nodes per day, which VoiceOver announces
+// as four disconnected stops -- "Tue", "☀️", "41 degrees", "33 degrees" -- with
+// nothing saying which number is the high, nothing tying them to the day, and
+// the emoji read out by its system name. Twenty-eight stops for a week. The day
+// column is now one accessible element carrying this label instead.
+//
+// There is no component-test setup in this project, which is exactly why the
+// label is built by a pure function: the string a blind user hears is the part
+// worth pinning, and it can be pinned without a render harness.
+
+describe("forecastDayAccessibilityLabel", () => {
+  const SAT = new Date(2026, 8, 5, 12, 0, 0); // Sat 5 Sep 2026, local
+  const day = (over: Partial<Parameters<typeof forecastDayAccessibilityLabel>[0]> = {}) => ({
+    date: "2026-09-08",
+    high: 41,
+    low: 33,
+    condition: "Clear",
+    icon: "☀️",
+    wet: false,
+    ...over,
+  });
+
+  test("reads as one sentence that says which number is which", () => {
+    assert.equal(
+      forecastDayAccessibilityLabel(day(), SAT, "imperial"),
+      "Tuesday, clear, high 41, low 33 degrees Fahrenheit",
+    );
+  });
+
+  test("spells the weekday out — the abbreviation exists to fit 44 points, not to be spoken", () => {
+    const label = forecastDayAccessibilityLabel(day(), SAT, "imperial");
+    assert.match(label, /^Tuesday/);
+    assert.doesNotMatch(label, /^Tue,/);
+  });
+
+  test("says Today for today, matching the visible column", () => {
+    assert.match(forecastDayAccessibilityLabel(day({ date: "2026-09-05" }), SAT, "imperial"), /^Today,/);
+  });
+
+  test("follows the viewer's unit, like the rest of the card", () => {
+    assert.match(forecastDayAccessibilityLabel(day(), SAT, "metric"), /degrees Celsius$/);
+    assert.match(forecastDayAccessibilityLabel(day(), SAT, "imperial"), /degrees Fahrenheit$/);
+  });
+
+  test("spells the unit rather than relying on the degree sign being read aloud", () => {
+    // "°F" is announced inconsistently depending on screen reader and context.
+    assert.doesNotMatch(forecastDayAccessibilityLabel(day(), SAT, "imperial"), /°/);
+  });
+
+  describe("a missing reading is omitted, never spoken as a number", () => {
+    test("no high", () => {
+      assert.equal(
+        forecastDayAccessibilityLabel(day({ high: null }), SAT, "imperial"),
+        "Tuesday, clear, low 33 degrees Fahrenheit",
+      );
+    });
+
+    test("no low", () => {
+      assert.equal(
+        forecastDayAccessibilityLabel(day({ low: null }), SAT, "imperial"),
+        "Tuesday, clear, high 41 degrees Fahrenheit",
+      );
+    });
+
+    test("neither — says so rather than inventing a figure", () => {
+      const label = forecastDayAccessibilityLabel(day({ high: null, low: null }), SAT, "imperial");
+      assert.equal(label, "Tuesday, clear, temperature not available");
+      // The card shows an em dash here. "high 0" would be a fabricated forecast.
+      assert.doesNotMatch(label, /\b0\b/);
+      assert.doesNotMatch(label, /null|NaN|undefined/);
+    });
+
+    test("a real 0 is still spoken — freezing is a reading, not an absence", () => {
+      assert.match(forecastDayAccessibilityLabel(day({ high: 0, low: 0 }), SAT, "metric"), /high 0, low 0 degrees Celsius/);
+    });
+  });
+
+  test("a malformed date key drops the weekday rather than opening with a comma", () => {
+    // dailyFromWeatherKit yields date:"" when forecastStart is absent.
+    const label = forecastDayAccessibilityLabel(day({ date: "" }), SAT, "imperial");
+    assert.equal(label, "clear, high 41, low 33 degrees Fahrenheit");
+    assert.doesNotMatch(label, /^,/);
+  });
+
+  test("never announces the emoji", () => {
+    // The icon is decoration; its system name ("sun behind cloud") is noise.
+    const label = forecastDayAccessibilityLabel(day({ icon: "🌧️", condition: "Rain" }), SAT, "imperial");
+    assert.doesNotMatch(label, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
+    assert.match(label, /rain/);
+  });
+
+  test("is never empty, whatever the day is missing", () => {
+    const label = forecastDayAccessibilityLabel(
+      { date: "", high: null, low: null, condition: "", icon: "", wet: false },
+      SAT,
+      "imperial",
+    );
+    assert.ok(label.trim().length > 0);
+    assert.equal(label, "temperature not available");
   });
 });

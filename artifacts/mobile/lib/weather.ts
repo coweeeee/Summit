@@ -16,7 +16,7 @@
 // Verified against Apple's DocC JSON:
 //   https://developer.apple.com/tutorials/data/documentation/weatherkit/weathercondition.json
 
-import type { DistanceUnit } from "./units.ts";
+import { temperatureUnitSpoken, type DistanceUnit } from "./units.ts";
 
 /**
  * The shape the UI consumes, whichever provider produced it.
@@ -332,11 +332,62 @@ export function dailyFromOpenMeteo(d: OpenMeteoDaily): DailyForecast[] {
  * previous weekday — the same class of bug the activity heatmap had to avoid,
  * and it would silently mislabel every column in the strip.
  */
-export function weekdayLabel(dateKey: string, today: Date): string {
+const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+export function weekdayLabel(dateKey: string, today: Date, style: "short" | "long" = "short"): string {
   const [y, m, d] = dateKey.split("-").map(Number);
   if (!y || !m || !d) return "";
   const local = new Date(y, m - 1, d);
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   if (dateKey === todayKey) return "Today";
-  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][local.getDay()];
+  return (style === "long" ? WEEKDAYS_LONG : WEEKDAYS_SHORT)[local.getDay()];
+}
+
+/**
+ * What VoiceOver reads for one column of the 7-day strip.
+ *
+ * The strip renders four separate Text nodes per day -- weekday, emoji, high,
+ * low -- which a screen reader announces as four disconnected stops:
+ * "Tue", "☀️", "41 degrees", "33 degrees". Nothing says which number is the
+ * high, nothing ties them to the day, and the emoji is announced by whatever
+ * name the system has for it. Twenty-eight stops for a week of weather.
+ *
+ * Grouping the column into ONE accessible element with this label makes it one
+ * stop that says what it means. Deliberately built here rather than inline in
+ * the component so it is unit-testable without a render harness -- this project
+ * has no component-test setup.
+ *
+ * Spelled-out weekday rather than the visible "Tue": the abbreviation exists to
+ * fit 44 points of width, a constraint speech does not have.
+ *
+ * A missing reading is OMITTED rather than spoken as a number. The card renders
+ * an em dash for null, and "high 0" would be a fabricated forecast -- the same
+ * rule the rest of this file follows.
+ */
+export function forecastDayAccessibilityLabel(
+  day: DailyForecast,
+  today: Date,
+  unit: DistanceUnit,
+): string {
+  const parts: string[] = [];
+
+  const weekday = weekdayLabel(day.date, today, "long");
+  if (weekday) parts.push(weekday);
+  if (day.condition) parts.push(day.condition.toLowerCase());
+
+  const degrees = temperatureUnitSpoken(unit);
+  if (day.high !== null && day.low !== null) {
+    // One "degrees" for the pair: "high 41, low 33 degrees Fahrenheit" reads
+    // better than repeating the unit, and the pairing is what was missing.
+    parts.push(`high ${day.high}, low ${day.low} ${degrees}`);
+  } else if (day.high !== null) {
+    parts.push(`high ${day.high} ${degrees}`);
+  } else if (day.low !== null) {
+    parts.push(`low ${day.low} ${degrees}`);
+  } else {
+    parts.push("temperature not available");
+  }
+
+  return parts.join(", ");
 }

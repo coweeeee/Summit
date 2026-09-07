@@ -68,6 +68,20 @@ export function temperatureUnitLabel(unit: DistanceUnit): string {
   return unit === "metric" ? "°C" : "°F";
 }
 
+/**
+ * Spoken form of temperatureUnitLabel, for accessibility labels.
+ *
+ * "°F" is read aloud inconsistently -- depending on the screen reader and the
+ * surrounding text it can come out as "degrees F", "F", or the degree sign
+ * skipped entirely. A label a blind user relies on should not depend on that.
+ *
+ * Lives next to temperatureUnitLabel so the two cannot drift onto different
+ * units: any change here must be made there and vice versa.
+ */
+export function temperatureUnitSpoken(unit: DistanceUnit): string {
+  return unit === "metric" ? "degrees Celsius" : "degrees Fahrenheit";
+}
+
 export function windSpeedUnitLabel(unit: DistanceUnit): string {
   return unit === "metric" ? "km/h" : "mph";
 }

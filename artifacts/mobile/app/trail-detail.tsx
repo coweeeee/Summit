@@ -8,7 +8,7 @@ import { readTrailDetail, writeTrailDetail, cacheAgeLabel } from "@/lib/offlineC
 import { loadWeatherKitAttribution, type WeatherKitAttribution } from "@/lib/weatherAttribution";
 import {
   currentFromOpenMeteo, dailyFromOpenMeteo, currentFromWeatherKit, dailyFromWeatherKit,
-  weekdayLabel,
+  weekdayLabel, forecastDayAccessibilityLabel,
   type Weather, type DailyForecast,
 } from "@/lib/weather";
 import {
@@ -102,6 +102,16 @@ export default function TrailDetailScreen() {
   // the attribution endpoint could not be reached" -- in both cases the credit
   // simply does not render. Never blocks the weather card.
   const [wkAttribution, setWkAttribution] = useState<WeatherKitAttribution | null>(null);
+  // The unit the CURRENT numbers were converted into, captured at fetch time.
+  //
+  // Not the same thing as `distanceUnit`. Changing the unit preference refires
+  // fetchWeather, and the forecast strip is not behind the weatherLoading gate
+  // the way the current-conditions card is -- so for the length of that refetch
+  // the strip still shows the old numbers while distanceUnit already reads the
+  // new value. The strip renders a bare "41°" so it never claimed a unit, but
+  // its accessibility label does, and a label that says "degrees Celsius" over
+  // Fahrenheit numbers is worse than no label. This is what it reads instead.
+  const [weatherUnit, setWeatherUnit] = useState<DistanceUnit | null>(null);
 
   /**
    * Photos from this trail's hikes, best first.
@@ -275,6 +285,7 @@ export default function TrailDetailScreen() {
         setWeather(currentFromWeatherKit(data.currentWeather, unit));
         setForecast(dailyFromWeatherKit(data.forecastDaily?.days ?? [], unit));
         setWeatherSource("weatherkit");
+        setWeatherUnit(unit);
         // Fire-and-forget, and deliberately NOT awaited: Apple requires this
         // attribution, but the reading is already good and must not wait on a
         // second network call to appear. Module-cached, so this is one request
@@ -303,6 +314,7 @@ export default function TrailDetailScreen() {
         setWeather(currentFromOpenMeteo(data.current));
         setForecast(dailyFromOpenMeteo(data.daily ?? {}));
         setWeatherSource("open-meteo");
+        setWeatherUnit(unit);
       }
     } catch (_) {
       // Weather is decorative relative to the rest of the screen; a trail with
@@ -494,7 +506,19 @@ export default function TrailDetailScreen() {
             {forecast.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.forecastRow}>
                 {forecast.map(day => (
-                  <View key={day.date} style={styles.forecastDay}>
+                  // ONE accessible stop per day, not four. Without `accessible`
+                  // the Text nodes below are announced separately -- "Tue",
+                  // "☀️", "41 degrees", "33 degrees" -- with nothing saying
+                  // which number is the high or tying them to the day, and the
+                  // emoji read out by whatever name the system has for it. That
+                  // is 28 stops to hear one week of weather. Grouping merges the
+                  // children into this element; the label says what they mean.
+                  <View
+                    key={day.date}
+                    style={styles.forecastDay}
+                    accessible
+                    accessibilityLabel={forecastDayAccessibilityLabel(day, new Date(), weatherUnit ?? distanceUnit)}
+                  >
                     <Text style={styles.forecastLabel}>{weekdayLabel(day.date, new Date())}</Text>
                     <Text style={styles.forecastIcon}>{day.icon}</Text>
                     <Text style={styles.forecastHigh}>{day.high === null ? "—" : `${day.high}°`}</Text>
