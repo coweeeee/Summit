@@ -66,11 +66,18 @@ import {
     // that is then never requested. A user who declines, or who accepts and
     // gets nothing, cannot be asked again except through iOS Settings.
     //
-    // app.json has no extra.eas.projectId, and easConfig cannot supply one in
-    // a locally built app either, so today this always returns here -- before
-    // the user is ever prompted. `eas init` writes the id. Sequence the Expo
-    // push credentials before adding it: with an id but no credentials this
-    // stops returning early and starts failing at the network call instead.
+    // STALE COMMENT CORRECTED 2026-09-07. This used to say app.json had no
+    // extra.eas.projectId and that registration therefore always returned here
+    // before the user was ever prompted. That stopped being true on 2026-08-10,
+    // when 794088b linked the EAS project and committed the id -- so this now
+    // falls through and the permission prompt IS reached.
+    //
+    // What still prevents a token in practice is the `!Device.isDevice` guard
+    // above: a simulator can never register, so this only runs on physical
+    // hardware. And a token is not delivery -- that additionally needs an APNs
+    // key registered with Expo (`eas credentials`). With an id but no
+    // credentials this no longer returns early and fails at the network call
+    // instead, which is the harder failure to read.
     const projectId =
       Constants.expoConfig?.extra?.eas?.projectId ??
       (Constants as any).easConfig?.projectId;
