@@ -575,7 +575,7 @@ export default function TrailDetailScreen() {
               from the condition string: lib/weather.ts sets it per condition
               code, which is the only place hail/sleet/wintryMix are correctly
               classified as wet. */}
-          {buildTrailTips(trail, distanceUnit, weather ? { temp: weather.temp, condition: weather.condition, wet: weather.wet } : null).map(tip => (
+          {buildTrailTips(trail, distanceUnit, weather && weatherSource ? { temp: weather.temp, condition: weather.condition, wet: weather.wet, source: weatherSource } : null).map(tip => (
             <View key={tip.text}>
               <View style={styles.tipRow}>
                 <Feather name={tip.icon} size={15} color={Colors.text3} />
@@ -587,8 +587,16 @@ export default function TrailDetailScreen() {
                   which the credit under the weather card 800px up does not
                   provide for someone reading this line. Keyed off tip.source
                   rather than the tip's index, so MAX_TIPS truncation or a
-                  reorder cannot detach the credit from the data. */}
-              {tip.source === "open-meteo" && weatherSource === "open-meteo" && (
+                  reorder cannot detach the credit from the data.
+
+                  tip.source now names the provider that actually answered, so
+                  this no longer needs to re-check weatherSource alongside it --
+                  that second condition was covering for a `source` that was
+                  hardcoded to "open-meteo" whoever replied. NOTE: when
+                  WeatherKit answers, no credit renders here at all. Apple's
+                  terms require their own attribution, which this PR does not
+                  yet add anywhere -- see the PR description. */}
+              {tip.source === "open-meteo" && (
                 <Pressable
                   onPress={() => Linking.openURL("https://open-meteo.com/")}
                   hitSlop={8}

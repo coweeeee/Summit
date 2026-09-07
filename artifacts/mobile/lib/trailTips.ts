@@ -32,8 +32,13 @@ export type TrailTip = {
    * locations -- so the tip declares its own provenance rather than the screen
    * inferring it from ordering, which would break the moment the list is
    * reordered or truncated by MAX_TIPS.
+   *
+   * This used to be hardcoded to "open-meteo" no matter who answered, which
+   * made the field a claim the tip could not back up. It now reports the
+   * provider that actually produced the reading, so a credit keyed off it is
+   * correct by construction rather than by the screen re-checking.
    */
-  source?: "open-meteo";
+  source?: WeatherSource;
 };
 
 export type TipTrail = {
@@ -42,6 +47,14 @@ export type TipTrail = {
   difficulty?: string | null;
   tags?: string[] | null;
 };
+
+/**
+ * Which provider produced a reading. Mirrors the union trail-detail already
+ * keeps in `weatherSource`; attribution follows the DATA, so it cannot be
+ * inferred from configuration — a WeatherKit outage that falls back to
+ * Open-Meteo must still credit Open-Meteo.
+ */
+export type WeatherSource = "weatherkit" | "open-meteo";
 
 export type TipWeather = {
   /** Null when the provider did not report one — the tip then omits the degrees. */
@@ -57,6 +70,11 @@ export type TipWeather = {
    * lib/weather.ts computes this per condition code instead; see its comment.
    */
   wet: boolean;
+  /**
+   * Which provider produced this reading. Supplied by the caller for the same
+   * reason `wet` is: the tip cannot know, and guessing gets the credit wrong.
+   */
+  source: WeatherSource;
 } | null;
 
 const MAX_TIPS = 4;
@@ -161,10 +179,11 @@ function weatherTip(weather: TipWeather, unit: DistanceUnit): TrailTip | null {
     text: weather.wet
       ? `${lead} right now — pack layers and expect slick footing.`
       : `${lead} at the trailhead right now.`,
-    // This line IS Open-Meteo data, so it is an attribution site in its own
-    // right. Covered by a test, because dropping this marker would silently
-    // remove a licence-required credit from the screen.
-    source: "open-meteo",
+    // This line IS weather data, so it is an attribution site in its own right,
+    // and it now names the provider that actually answered rather than assuming
+    // Open-Meteo. Covered by tests in both directions, because getting this
+    // wrong either drops a licence-required credit or prints a false one.
+    source: weather.source,
   };
 }
 
