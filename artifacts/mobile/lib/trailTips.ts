@@ -5,7 +5,7 @@ import type { Feather } from "@expo/vector-icons";
 // Explicit .ts extensions because node's ESM resolver will not infer them, and
 // `allowImportingTsExtensions` is already on. Metro resolves them either way.
 import type { DistanceUnit } from "./units.ts";
-import { formatDistance, formatElevation } from "./units.ts";
+import { formatDistance, formatElevation, temperatureUnitLabel } from "./units.ts";
 import { averageGrade, steepnessBand } from "./elevation.ts";
 
 // "Good to know" tips, derived from what the database already holds.
@@ -75,6 +75,18 @@ export type TipWeather = {
    * reason `wet` is: the tip cannot know, and guessing gets the credit wrong.
    */
   source: WeatherSource;
+  /**
+   * The unit `temp` is ALREADY IN, captured when the reading was fetched.
+   *
+   * Not the same as buildTrailTips' `unit` parameter, which describes the
+   * viewer's current preference and correctly drives the distance and
+   * elevation tips (those read from `trail`, which is not refetched). Weather
+   * is converted at fetch time, so between a preference change and the refetch
+   * landing the two genuinely differ -- and this section has no loading gate,
+   * so it renders the old reading throughout that window. Labelling a
+   * Fahrenheit number "°C" is the bug this prevents.
+   */
+  unit: DistanceUnit;
 } | null;
 
 const MAX_TIPS = 4;
@@ -165,7 +177,11 @@ function tagTips(trail: TipTrail): TrailTip[] {
   return TAG_TIPS.filter(entry => entry.tags.some(t => tags.includes(t))).map(e => e.tip);
 }
 
-function weatherTip(weather: TipWeather, unit: DistanceUnit): TrailTip | null {
+// Takes no `unit` parameter on purpose: it labels a WEATHER reading, so it uses
+// weather.unit -- the unit that reading was converted into -- not the viewer's
+// current preference. The other tips read from `trail`, which is not refetched,
+// so they correctly keep using buildTrailTips' `unit`.
+function weatherTip(weather: TipWeather): TrailTip | null {
   if (!weather) return null;
   const condition = weather.condition.toLowerCase();
   // A missing temperature drops the degrees rather than printing a fabricated
@@ -173,7 +189,7 @@ function weatherTip(weather: TipWeather, unit: DistanceUnit): TrailTip | null {
   const lead =
     weather.temp === null
       ? condition.charAt(0).toUpperCase() + condition.slice(1)
-      : `${weather.temp}${unit === "metric" ? "°C" : "°F"} and ${condition}`;
+      : `${weather.temp}${temperatureUnitLabel(weather.unit)} and ${condition}`;
   return {
     icon: "cloud",
     text: weather.wet
@@ -197,7 +213,7 @@ export function buildTrailTips(
   weather: TipWeather = null
 ): TrailTip[] {
   const tips = [
-    weatherTip(weather, unit),
+    weatherTip(weather),
     ...tagTips(trail),
     steepnessTip(trail, unit),
     waterTip(trail, unit),

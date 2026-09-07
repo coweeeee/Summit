@@ -630,7 +630,7 @@ export default function TrailDetailScreen() {
               from the condition string: lib/weather.ts sets it per condition
               code, which is the only place hail/sleet/wintryMix are correctly
               classified as wet. */}
-          {buildTrailTips(trail, distanceUnit, weather && weatherSource ? { temp: weather.temp, condition: weather.condition, wet: weather.wet, source: weatherSource } : null).map(tip => (
+          {buildTrailTips(trail, distanceUnit, weather && weatherSource ? { temp: weather.temp, condition: weather.condition, wet: weather.wet, source: weatherSource, unit: weatherUnit ?? distanceUnit } : null).map(tip => (
             <View key={tip.text}>
               <View style={styles.tipRow}>
                 <Feather name={tip.icon} size={15} color={Colors.text3} />

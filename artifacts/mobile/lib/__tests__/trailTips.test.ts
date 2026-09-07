@@ -35,7 +35,7 @@ describe("buildTrailTips — always says something", () => {
         tags: ["Permit", "Remote", "Coastal", "Scramble", "Alpine", "Desert", "Wildlife", "Forest", "Family"],
       },
       "imperial",
-      { temp: 50, condition: "Rain", wet: true, source: "open-meteo" },
+      { temp: 50, condition: "Rain", wet: true, source: "open-meteo", unit: "imperial" },
     );
     assert.ok(tips.length <= 4, `got ${tips.length} tips`);
   });
@@ -46,7 +46,7 @@ describe("buildTrailTips — ordering is a safety judgement", () => {
     const tips = buildTrailTips(
       { distance_mi: 4, elevation_ft: 1200, tags: ["Forest"] },
       "imperial",
-      { temp: 38, condition: "Snow", wet: true, source: "open-meteo" },
+      { temp: 38, condition: "Snow", wet: true, source: "open-meteo", unit: "imperial" },
     );
     assert.match(tips[0].text, /38/);
   });
@@ -141,6 +141,7 @@ describe("attribution provenance", () => {
       condition: "Partly cloudy",
       wet: false,
       source: "open-meteo",
+      unit: "imperial",
     });
     const weatherTip = tips.find(t => t.source === "open-meteo");
     assert.ok(weatherTip, "expected a tip marked source: 'open-meteo'");
@@ -165,7 +166,7 @@ describe("attribution provenance", () => {
 describe("weatherTip — slick-footing copy follows the wet flag, not the words", () => {
   const trail = { distance_mi: 4, elevation_ft: 800, tags: [], difficulty: "Moderate" };
   const tipText = (w: { temp: number | null; condition: string; wet: boolean }) =>
-    buildTrailTips(trail, "imperial", { ...w, source: "open-meteo" })[0].text;
+    buildTrailTips(trail, "imperial", { ...w, source: "open-meteo", unit: "imperial" })[0].text;
 
   // The exact labels the old regex could not see. Each is genuinely slick.
   for (const condition of ["Hail", "Sleet", "Wintry mix", "Hurricane", "Tropical storm", "Freezing rain"]) {
@@ -210,7 +211,7 @@ describe("weatherTip — slick-footing copy follows the wet flag, not the words"
 describe("weatherTip — source names the provider that actually answered", () => {
   const trail = { distance_mi: 4, elevation_ft: 800, tags: [], difficulty: "Moderate" };
   const weatherTipOf = (source: "weatherkit" | "open-meteo") =>
-    buildTrailTips(trail, "imperial", { temp: 55, condition: "Clear", wet: false, source })[0];
+    buildTrailTips(trail, "imperial", { temp: 55, condition: "Clear", wet: false, source, unit: "imperial" })[0];
 
   test("an Open-Meteo reading is credited to Open-Meteo", () => {
     assert.equal(weatherTipOf("open-meteo").source, "open-meteo");
@@ -235,5 +236,39 @@ describe("weatherTip — source names the provider that actually answered", () =
     // must not pick up a credit it did not earn.
     const tips = buildTrailTips({ distance_mi: 12, elevation_ft: 4000, tags: ["Permit"] }, "imperial");
     for (const tip of tips) assert.equal(tip.source, undefined);
+  });
+});
+
+describe("weatherTip — the temperature is labelled with the unit it is actually in", () => {
+  const trail = { distance_mi: 4, elevation_ft: 800, tags: [], difficulty: "Moderate" };
+
+  test("uses the reading's own unit, not the viewer's current preference", () => {
+    // These differ for the length of one refetch after a unit-preference change,
+    // and this section has no loading gate, so it renders the OLD reading
+    // throughout that window. Labelling a Fahrenheit number "°C" is the bug.
+    const tips = buildTrailTips(trail, "metric", {
+      temp: 55, condition: "Clear", wet: false, source: "open-meteo", unit: "imperial",
+    });
+    assert.match(tips[0].text, /55°F/);
+    assert.doesNotMatch(tips[0].text, /°C/);
+  });
+
+  test("and the reverse, so neither direction is special-cased", () => {
+    const tips = buildTrailTips(trail, "imperial", {
+      temp: 13, condition: "Clear", wet: false, source: "open-meteo", unit: "metric",
+    });
+    assert.match(tips[0].text, /13°C/);
+  });
+
+  test("the trail-derived tips still follow the viewer's preference", () => {
+    // trail data is not refetched, so distance and elevation correctly keep
+    // using the live unit even while the weather reading lags behind it.
+    const tips = buildTrailTips({ distance_mi: 12, elevation_ft: 4000, tags: [] }, "metric", {
+      temp: 55, condition: "Clear", wet: false, source: "open-meteo", unit: "imperial",
+    });
+    const trailTips = tips.filter(t => !/right now/.test(t.text));
+    assert.ok(trailTips.length > 0);
+    assert.ok(trailTips.some(t => /km|m\b/.test(t.text)), "expected metric distance/elevation");
+    assert.ok(!trailTips.some(t => /\bmi\b|\bft\b/.test(t.text)), "trail tips must not use imperial here");
   });
 });
