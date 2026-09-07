@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { Image } from "expo-image";
 import { signedUrlsFor } from "@/lib/upload";
 import { readTrailDetail, writeTrailDetail, cacheAgeLabel } from "@/lib/offlineCache";
+import { loadWeatherKitAttribution, type WeatherKitAttribution } from "@/lib/weatherAttribution";
 import {
   currentFromOpenMeteo, dailyFromOpenMeteo, currentFromWeatherKit, dailyFromWeatherKit,
   weekdayLabel,
@@ -97,6 +98,10 @@ export default function TrailDetailScreen() {
   // cannot be inferred from config -- a WeatherKit outage that falls back to
   // Open-Meteo must still credit Open-Meteo.
   const [weatherSource, setWeatherSource] = useState<"weatherkit" | "open-meteo" | null>(null);
+  // Apple's mark and legal link, fetched on demand. Null means "not loaded, or
+  // the attribution endpoint could not be reached" -- in both cases the credit
+  // simply does not render. Never blocks the weather card.
+  const [wkAttribution, setWkAttribution] = useState<WeatherKitAttribution | null>(null);
 
   /**
    * Photos from this trail's hikes, best first.
@@ -270,6 +275,11 @@ export default function TrailDetailScreen() {
         setWeather(currentFromWeatherKit(data.currentWeather, unit));
         setForecast(dailyFromWeatherKit(data.forecastDaily?.days ?? [], unit));
         setWeatherSource("weatherkit");
+        // Fire-and-forget, and deliberately NOT awaited: Apple requires this
+        // attribution, but the reading is already good and must not wait on a
+        // second network call to appear. Module-cached, so this is one request
+        // per session rather than per load. A null result renders no credit.
+        void loadWeatherKitAttribution().then(setWkAttribution);
         setWeatherLoading(false);
         return;
       }
@@ -503,6 +513,27 @@ export default function TrailDetailScreen() {
                 <Text style={styles.weatherCredit}>Weather data by Open-Meteo.com</Text>
               </Pressable>
             )}
+            {/* Apple requires the Weather mark and a link to their data-source
+                page wherever WeatherKit data appears. Sized to the same visual
+                weight as the Open-Meteo line above it -- 14pt tall against that
+                line's 11pt type -- so neither provider reads as an afterthought.
+                Absent when the attribution endpoint could not be reached; the
+                reading itself is unaffected either way. */}
+            {weatherSource === "weatherkit" && wkAttribution && (
+              <Pressable
+                onPress={() => Linking.openURL(wkAttribution.legalUrl)}
+                hitSlop={8}
+                accessibilityRole="link"
+                accessibilityLabel={`Weather data by ${wkAttribution.serviceName}. Opens Apple's data source attribution page`}
+              >
+                <Image
+                  source={{ uri: wkAttribution.logoUrl }}
+                  style={[styles.weatherKitMark, { width: 14 * wkAttribution.aspectRatio }]}
+                  contentFit="contain"
+                  accessible={false}
+                />
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -606,6 +637,25 @@ export default function TrailDetailScreen() {
                   <Text style={styles.tipCredit}>Weather data by Open-Meteo.com</Text>
                 </Pressable>
               )}
+              {/* The WeatherKit equivalent of the credit above, for the same
+                  adjacency reason: this line IS Apple's data. Slightly smaller
+                  than the card's mark, mirroring how tipCredit is a half-point
+                  quieter than weatherCredit. */}
+              {tip.source === "weatherkit" && wkAttribution && (
+                <Pressable
+                  onPress={() => Linking.openURL(wkAttribution.legalUrl)}
+                  hitSlop={8}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Weather data by ${wkAttribution.serviceName}. Opens Apple's data source attribution page`}
+                >
+                  <Image
+                    source={{ uri: wkAttribution.logoUrl }}
+                    style={[styles.tipMark, { width: 13 * wkAttribution.aspectRatio }]}
+                    contentFit="contain"
+                    accessible={false}
+                  />
+                </Pressable>
+              )}
             </View>
           ))}
         </View>
@@ -650,6 +700,11 @@ const styles = StyleSheet.create({
   forecastHigh: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
   forecastLow: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3 },
   weatherCredit: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.accent, marginTop: 8, marginLeft: 4 },
+  // Height-driven; width is computed from the mark's native aspect so it cannot
+  // be squashed if Apple ever reissues the asset at another size. Margins match
+  // weatherCredit / tipCredit so the two providers sit identically.
+  weatherKitMark: { height: 14, marginTop: 8, marginLeft: 4 },
+  tipMark: { height: 13, marginLeft: 23, marginTop: 3, marginBottom: 10 },
   sourceLink: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.accent, marginTop: 4 },
   headerTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text, flex: 1, textAlign: "center" },
   hero: { marginHorizontal: 16, marginBottom: 4, backgroundColor: Colors.bg3, borderRadius: 16, borderWidth: 1, borderColor: Colors.border, padding: 20 },
