@@ -48,3 +48,8 @@ Thumbs.db
 .cache/
 .local/
 Summit/
+
+# Apple private keys (WeatherKit/APNs .p8 files) — never commit these,
+# wherever in the tree they land. artifacts/mobile/.gitignore has its own
+# *.p8 rule that only covers that subtree; this one covers the whole repo.
+*.p8

@@ -5,6 +5,12 @@ import React, { useEffect, useState } from "react";
 import { Image } from "expo-image";
 import { signedUrlsFor } from "@/lib/upload";
 import { readTrailDetail, writeTrailDetail, cacheAgeLabel } from "@/lib/offlineCache";
+import { loadWeatherKitAttribution, type WeatherKitAttribution } from "@/lib/weatherAttribution";
+import {
+  currentFromOpenMeteo, dailyFromOpenMeteo, currentFromWeatherKit, dailyFromWeatherKit,
+  weekdayLabel, forecastDayAccessibilityLabel, currentConditionsAccessibilityLabel,
+  type Weather, type DailyForecast,
+} from "@/lib/weather";
 import {
   ActivityIndicator,
   Linking,
@@ -43,10 +49,6 @@ type Trail = {
   attribution: string | null; license: string | null; source_url: string | null;
 };
 
-type Weather = {
-  temp: number; feelsLike: number; condition: string;
-  windSpeed: number; humidity: number; icon: string;
-};
 
 
 function getWeatherIcon(wmo: number): string {
@@ -91,6 +93,25 @@ export default function TrailDetailScreen() {
   // Non-null means the screen is showing REMEMBERED data, not live. Drives the
   // banner -- cached content is never presented as current.
   const [cachedAt, setCachedAt] = useState<number | null>(null);
+  const [forecast, setForecast] = useState<DailyForecast[]>([]);
+  // Which provider actually answered. Attribution follows the DATA, so this
+  // cannot be inferred from config -- a WeatherKit outage that falls back to
+  // Open-Meteo must still credit Open-Meteo.
+  const [weatherSource, setWeatherSource] = useState<"weatherkit" | "open-meteo" | null>(null);
+  // Apple's mark and legal link, fetched on demand. Null means "not loaded, or
+  // the attribution endpoint could not be reached" -- in both cases the credit
+  // simply does not render. Never blocks the weather card.
+  const [wkAttribution, setWkAttribution] = useState<WeatherKitAttribution | null>(null);
+  // The unit the CURRENT numbers were converted into, captured at fetch time.
+  //
+  // Not the same thing as `distanceUnit`. Changing the unit preference refires
+  // fetchWeather, and the forecast strip is not behind the weatherLoading gate
+  // the way the current-conditions card is -- so for the length of that refetch
+  // the strip still shows the old numbers while distanceUnit already reads the
+  // new value. The strip renders a bare "41°" so it never claimed a unit, but
+  // its accessibility label does, and a label that says "degrees Celsius" over
+  // Fahrenheit numbers is worse than no label. This is what it reads instead.
+  const [weatherUnit, setWeatherUnit] = useState<DistanceUnit | null>(null);
 
   /**
    * Photos from this trail's hikes, best first.
@@ -235,22 +256,70 @@ export default function TrailDetailScreen() {
     if (coords) fetchWeather(coords.lat, coords.lng, distanceUnit);
   }, [coords, distanceUnit]);
 
+  /**
+   * WeatherKit first, Open-Meteo as the fallback.
+   *
+   * The fallback is not defensive padding -- it is the migration strategy. Until
+   * a real WeatherKit call has succeeded against real credentials, Open-Meteo is
+   * the only path proven to work, so it stays wired up and a WeatherKit failure
+   * of ANY kind (not deployed, unconfigured, 401, network) degrades silently to
+   * it rather than showing an empty card.
+   *
+   * Once WeatherKit is verified live, the Open-Meteo half and its two
+   * attribution sites come out together.
+   */
   const fetchWeather = async (lat: number, lng: number, unit: DistanceUnit) => {
     setWeatherLoading(true);
+
+    // Apple rolls the daily forecast up against this zone, and it is a REQUIRED
+    // query parameter on the weather endpoint (dataSets, counter-intuitively, is
+    // not). The device zone is the right one: it is where the reader is planning
+    // from. UTC is the floor if the runtime cannot say.
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+    try {
+      const { data, error } = await supabase.functions.invoke("weather", {
+        body: { lat, lng, timezone },
+      });
+      if (!error && data?.currentWeather) {
+        setWeather(currentFromWeatherKit(data.currentWeather, unit));
+        setForecast(dailyFromWeatherKit(data.forecastDaily?.days ?? [], unit, timezone));
+        setWeatherSource("weatherkit");
+        setWeatherUnit(unit);
+        // Fire-and-forget, and deliberately NOT awaited: Apple requires this
+        // attribution, but the reading is already good and must not wait on a
+        // second network call to appear. Module-cached, so this is one request
+        // per session rather than per load. A null result renders no credit.
+        void loadWeatherKitAttribution().then(setWkAttribution);
+        setWeatherLoading(false);
+        return;
+      }
+      // Not thrown, just noted: on an unconfigured project this is the expected
+      // path every single time, so it must not read as an incident.
+      if (error) console.warn("weather: WeatherKit unavailable, using Open-Meteo", error.message);
+    } catch (e) {
+      console.warn("weather: WeatherKit call threw, using Open-Meteo", e instanceof Error ? e.message : e);
+    }
+
     try {
       const units = openMeteoUnitParams(unit);
-      const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&temperature_unit=${units.temperature}&wind_speed_unit=${units.windSpeed}`);
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+          `&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code` +
+          `&daily=weather_code,temperature_2m_max,temperature_2m_min&forecast_days=7` +
+          `&timezone=auto&temperature_unit=${units.temperature}&wind_speed_unit=${units.windSpeed}`,
+      );
       const data = await res.json();
-      const c = data.current;
-      setWeather({
-        temp: Math.round(c.temperature_2m),
-        feelsLike: Math.round(c.apparent_temperature),
-        condition: getWeatherDesc(c.weather_code),
-        windSpeed: Math.round(c.wind_speed_10m),
-        humidity: c.relative_humidity_2m,
-        icon: getWeatherIcon(c.weather_code),
-      });
-    } catch (_) {}
+      if (data?.current) {
+        setWeather(currentFromOpenMeteo(data.current));
+        setForecast(dailyFromOpenMeteo(data.daily ?? {}));
+        setWeatherSource("open-meteo");
+        setWeatherUnit(unit);
+      }
+    } catch (_) {
+      // Weather is decorative relative to the rest of the screen; a trail with
+      // no forecast still shows its distance, description and photos.
+    }
     setWeatherLoading(false);
   };
 
@@ -379,16 +448,32 @@ export default function TrailDetailScreen() {
             {weatherLoading ? (
               <View style={styles.weatherLoading}><ActivityIndicator color={Colors.accent} size="small" /></View>
             ) : weather && (
-              <View style={styles.weatherCard}>
+              // One stop, not six. The emoji, the two temperatures, the wind
+              // and the humidity were announced separately, and the last two as
+              // bare numbers -- "24" and "66 percent" -- with the wind and
+              // droplet glyphs carrying the meaning for everyone else. Same fix
+              // as the forecast strip below.
+              <View
+                style={styles.weatherCard}
+                accessible
+                accessibilityLabel={currentConditionsAccessibilityLabel(weather, weatherUnit ?? distanceUnit)}
+              >
                 <Text style={styles.weatherIcon}>{weather.icon}</Text>
                 <View style={styles.weatherInfo}>
-                  <Text style={styles.weatherTemp}>{weather.temp}{temperatureUnitLabel(distanceUnit)}</Text>
+                  {/* An em dash, never a 0. A provider that omits a reading gets
+                      an honest gap -- "0°" and "0%" are indistinguishable from a
+                      real freezing, bone-dry measurement, which is the same
+                      0-vs-null trap CLAUDE.md records for hikes.elevation_ft.
+                      The unit label goes with the number, so it drops too. */}
+                  <Text style={styles.weatherTemp}>{weather.temp === null ? "—" : `${weather.temp}${temperatureUnitLabel(distanceUnit)}`}</Text>
                   <Text style={styles.weatherCondition}>{weather.condition}</Text>
-                  <Text style={styles.weatherSub}>Feels like {weather.feelsLike}{temperatureUnitLabel(distanceUnit)}</Text>
+                  {weather.feelsLike !== null && (
+                    <Text style={styles.weatherSub}>Feels like {weather.feelsLike}{temperatureUnitLabel(distanceUnit)}</Text>
+                  )}
                 </View>
                 <View style={styles.weatherStats}>
-                  <View style={styles.weatherStat}><Feather name="wind" size={13} color={Colors.text3} /><Text style={styles.weatherStatText}>{weather.windSpeed} {windSpeedUnitLabel(distanceUnit)}</Text></View>
-                  <View style={styles.weatherStat}><Feather name="droplet" size={13} color={Colors.text3} /><Text style={styles.weatherStatText}>{weather.humidity}%</Text></View>
+                  <View style={styles.weatherStat}><Feather name="wind" size={13} color={Colors.text3} /><Text style={styles.weatherStatText}>{weather.windSpeed === null ? "—" : `${weather.windSpeed} ${windSpeedUnitLabel(distanceUnit)}`}</Text></View>
+                  <View style={styles.weatherStat}><Feather name="droplet" size={13} color={Colors.text3} /><Text style={styles.weatherStatText}>{weather.humidity === null ? "—" : `${weather.humidity}%`}</Text></View>
                 </View>
               </View>
             )}
@@ -427,7 +512,31 @@ export default function TrailDetailScreen() {
                 If the WeatherKit migration lands and Open-Meteo is removed,
                 this goes with it -- and Apple's own attribution replaces it.
                 Removing Open-Meteo means removing BOTH display sites. */}
-            {weather && (
+            {forecast.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.forecastRow}>
+                {forecast.map(day => (
+                  // ONE accessible stop per day, not four. Without `accessible`
+                  // the Text nodes below are announced separately -- "Tue",
+                  // "☀️", "41 degrees", "33 degrees" -- with nothing saying
+                  // which number is the high or tying them to the day, and the
+                  // emoji read out by whatever name the system has for it. That
+                  // is 28 stops to hear one week of weather. Grouping merges the
+                  // children into this element; the label says what they mean.
+                  <View
+                    key={day.date}
+                    style={styles.forecastDay}
+                    accessible
+                    accessibilityLabel={forecastDayAccessibilityLabel(day, new Date(), weatherUnit ?? distanceUnit)}
+                  >
+                    <Text style={styles.forecastLabel}>{weekdayLabel(day.date, new Date())}</Text>
+                    <Text style={styles.forecastIcon}>{day.icon}</Text>
+                    <Text style={styles.forecastHigh}>{day.high === null ? "—" : `${day.high}°`}</Text>
+                    <Text style={styles.forecastLow}>{day.low === null ? "—" : `${day.low}°`}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+            {weatherSource === "open-meteo" && (
               <Pressable
                 onPress={() => Linking.openURL("https://open-meteo.com/")}
                 hitSlop={8}
@@ -435,6 +544,27 @@ export default function TrailDetailScreen() {
                 accessibilityLabel="Weather data by Open-Meteo.com. Opens open-meteo.com"
               >
                 <Text style={styles.weatherCredit}>Weather data by Open-Meteo.com</Text>
+              </Pressable>
+            )}
+            {/* Apple requires the Weather mark and a link to their data-source
+                page wherever WeatherKit data appears. Sized to the same visual
+                weight as the Open-Meteo line above it -- 14pt tall against that
+                line's 11pt type -- so neither provider reads as an afterthought.
+                Absent when the attribution endpoint could not be reached; the
+                reading itself is unaffected either way. */}
+            {weatherSource === "weatherkit" && wkAttribution && (
+              <Pressable
+                onPress={() => Linking.openURL(wkAttribution.legalUrl)}
+                hitSlop={8}
+                accessibilityRole="link"
+                accessibilityLabel={`Weather data by ${wkAttribution.serviceName}. Opens Apple's data source attribution page`}
+              >
+                <Image
+                  source={{ uri: wkAttribution.logoUrl }}
+                  style={[styles.weatherKitMark, { width: 14 * wkAttribution.aspectRatio }]}
+                  contentFit="contain"
+                  accessible={false}
+                />
               </Pressable>
             )}
           </View>
@@ -505,7 +635,11 @@ export default function TrailDetailScreen() {
           {/* Derived per trail from distance, elevation, tags and the live
               weather above. These were three identical literals on all 225
               trails before. */}
-          {buildTrailTips(trail, distanceUnit, weather ? { temp: weather.temp, condition: weather.condition } : null).map(tip => (
+          {/* `wet` is passed through rather than left for trailTips to re-derive
+              from the condition string: lib/weather.ts sets it per condition
+              code, which is the only place hail/sleet/wintryMix are correctly
+              classified as wet. */}
+          {buildTrailTips(trail, distanceUnit, weather && weatherSource ? { temp: weather.temp, condition: weather.condition, wet: weather.wet, source: weatherSource, unit: weatherUnit ?? distanceUnit } : null).map(tip => (
             <View key={tip.text}>
               <View style={styles.tipRow}>
                 <Feather name={tip.icon} size={15} color={Colors.text3} />
@@ -517,7 +651,15 @@ export default function TrailDetailScreen() {
                   which the credit under the weather card 800px up does not
                   provide for someone reading this line. Keyed off tip.source
                   rather than the tip's index, so MAX_TIPS truncation or a
-                  reorder cannot detach the credit from the data. */}
+                  reorder cannot detach the credit from the data.
+
+                  tip.source now names the provider that actually answered, so
+                  this no longer needs to re-check weatherSource alongside it --
+                  that second condition was covering for a `source` that was
+                  hardcoded to "open-meteo" whoever replied. NOTE: when
+                  WeatherKit answers, no credit renders here at all. Apple's
+                  terms require their own attribution, which this PR does not
+                  yet add anywhere -- see the PR description. */}
               {tip.source === "open-meteo" && (
                 <Pressable
                   onPress={() => Linking.openURL("https://open-meteo.com/")}
@@ -526,6 +668,25 @@ export default function TrailDetailScreen() {
                   accessibilityLabel="Weather data by Open-Meteo.com. Opens open-meteo.com"
                 >
                   <Text style={styles.tipCredit}>Weather data by Open-Meteo.com</Text>
+                </Pressable>
+              )}
+              {/* The WeatherKit equivalent of the credit above, for the same
+                  adjacency reason: this line IS Apple's data. Slightly smaller
+                  than the card's mark, mirroring how tipCredit is a half-point
+                  quieter than weatherCredit. */}
+              {tip.source === "weatherkit" && wkAttribution && (
+                <Pressable
+                  onPress={() => Linking.openURL(wkAttribution.legalUrl)}
+                  hitSlop={8}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Weather data by ${wkAttribution.serviceName}. Opens Apple's data source attribution page`}
+                >
+                  <Image
+                    source={{ uri: wkAttribution.logoUrl }}
+                    style={[styles.tipMark, { width: 13 * wkAttribution.aspectRatio }]}
+                    contentFit="contain"
+                    accessible={false}
+                  />
                 </Pressable>
               )}
             </View>
@@ -565,7 +726,18 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.border,
   },
   offlineBannerText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12.5, color: Colors.text2, lineHeight: 18 },
+  forecastRow: { gap: 14, paddingHorizontal: 16, paddingTop: 12 },
+  forecastDay: { alignItems: "center", minWidth: 44 },
+  forecastLabel: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.text3, marginBottom: 4 },
+  forecastIcon: { fontSize: 20, marginBottom: 4 },
+  forecastHigh: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
+  forecastLow: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.text3 },
   weatherCredit: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.accent, marginTop: 8, marginLeft: 4 },
+  // Height-driven; width is computed from the mark's native aspect so it cannot
+  // be squashed if Apple ever reissues the asset at another size. Margins match
+  // weatherCredit / tipCredit so the two providers sit identically.
+  weatherKitMark: { height: 14, marginTop: 8, marginLeft: 4 },
+  tipMark: { height: 13, marginLeft: 23, marginTop: 3, marginBottom: 10 },
   sourceLink: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.accent, marginTop: 4 },
   headerTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.text, flex: 1, textAlign: "center" },
   hero: { marginHorizontal: 16, marginBottom: 4, backgroundColor: Colors.bg3, borderRadius: 16, borderWidth: 1, borderColor: Colors.border, padding: 20 },

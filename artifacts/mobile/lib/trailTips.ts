@@ -5,7 +5,7 @@ import type { Feather } from "@expo/vector-icons";
 // Explicit .ts extensions because node's ESM resolver will not infer them, and
 // `allowImportingTsExtensions` is already on. Metro resolves them either way.
 import type { DistanceUnit } from "./units.ts";
-import { formatDistance, formatElevation } from "./units.ts";
+import { formatDistance, formatElevation, temperatureUnitLabel } from "./units.ts";
 import { averageGrade, steepnessBand } from "./elevation.ts";
 
 // "Good to know" tips, derived from what the database already holds.
@@ -32,8 +32,13 @@ export type TrailTip = {
    * locations -- so the tip declares its own provenance rather than the screen
    * inferring it from ordering, which would break the moment the list is
    * reordered or truncated by MAX_TIPS.
+   *
+   * This used to be hardcoded to "open-meteo" no matter who answered, which
+   * made the field a claim the tip could not back up. It now reports the
+   * provider that actually produced the reading, so a credit keyed off it is
+   * correct by construction rather than by the screen re-checking.
    */
-  source?: "open-meteo";
+  source?: WeatherSource;
 };
 
 export type TipTrail = {
@@ -43,9 +48,45 @@ export type TipTrail = {
   tags?: string[] | null;
 };
 
+/**
+ * Which provider produced a reading. Mirrors the union trail-detail already
+ * keeps in `weatherSource`; attribution follows the DATA, so it cannot be
+ * inferred from configuration — a WeatherKit outage that falls back to
+ * Open-Meteo must still credit Open-Meteo.
+ */
+export type WeatherSource = "weatherkit" | "open-meteo";
+
 export type TipWeather = {
-  temp: number;
+  /** Null when the provider did not report one — the tip then omits the degrees. */
+  temp: number | null;
   condition: string;
+  /**
+   * Supplied by the caller, never re-derived here.
+   *
+   * This used to be `/rain|snow|shower|thunder|drizzle/i.test(condition)`, run
+   * over the English label. Against WeatherKit's vocabulary that reads hail,
+   * sleet, wintryMix, hurricane and tropicalStorm as DRY — the "expect slick
+   * footing" line vanished in exactly the conditions that most warrant it.
+   * lib/weather.ts computes this per condition code instead; see its comment.
+   */
+  wet: boolean;
+  /**
+   * Which provider produced this reading. Supplied by the caller for the same
+   * reason `wet` is: the tip cannot know, and guessing gets the credit wrong.
+   */
+  source: WeatherSource;
+  /**
+   * The unit `temp` is ALREADY IN, captured when the reading was fetched.
+   *
+   * Not the same as buildTrailTips' `unit` parameter, which describes the
+   * viewer's current preference and correctly drives the distance and
+   * elevation tips (those read from `trail`, which is not refetched). Weather
+   * is converted at fetch time, so between a preference change and the refetch
+   * landing the two genuinely differ -- and this section has no loading gate,
+   * so it renders the old reading throughout that window. Labelling a
+   * Fahrenheit number "°C" is the bug this prevents.
+   */
+  unit: DistanceUnit;
 } | null;
 
 const MAX_TIPS = 4;
@@ -136,19 +177,29 @@ function tagTips(trail: TipTrail): TrailTip[] {
   return TAG_TIPS.filter(entry => entry.tags.some(t => tags.includes(t))).map(e => e.tip);
 }
 
-function weatherTip(weather: TipWeather, unit: DistanceUnit): TrailTip | null {
+// Takes no `unit` parameter on purpose: it labels a WEATHER reading, so it uses
+// weather.unit -- the unit that reading was converted into -- not the viewer's
+// current preference. The other tips read from `trail`, which is not refetched,
+// so they correctly keep using buildTrailTips' `unit`.
+function weatherTip(weather: TipWeather): TrailTip | null {
   if (!weather) return null;
-  const degrees = `${weather.temp}${unit === "metric" ? "°C" : "°F"}`;
-  const wet = /rain|snow|shower|thunder|drizzle/i.test(weather.condition);
+  const condition = weather.condition.toLowerCase();
+  // A missing temperature drops the degrees rather than printing a fabricated
+  // one. The condition on its own is still worth saying, so the tip survives.
+  const lead =
+    weather.temp === null
+      ? condition.charAt(0).toUpperCase() + condition.slice(1)
+      : `${weather.temp}${temperatureUnitLabel(weather.unit)} and ${condition}`;
   return {
     icon: "cloud",
-    text: wet
-      ? `${degrees} and ${weather.condition.toLowerCase()} right now — pack layers and expect slick footing.`
-      : `${degrees} and ${weather.condition.toLowerCase()} at the trailhead right now.`,
-    // This line IS Open-Meteo data, so it is an attribution site in its own
-    // right. Covered by a test, because dropping this marker would silently
-    // remove a licence-required credit from the screen.
-    source: "open-meteo",
+    text: weather.wet
+      ? `${lead} right now — pack layers and expect slick footing.`
+      : `${lead} at the trailhead right now.`,
+    // This line IS weather data, so it is an attribution site in its own right,
+    // and it now names the provider that actually answered rather than assuming
+    // Open-Meteo. Covered by tests in both directions, because getting this
+    // wrong either drops a licence-required credit or prints a false one.
+    source: weather.source,
   };
 }
 
@@ -162,7 +213,7 @@ export function buildTrailTips(
   weather: TipWeather = null
 ): TrailTip[] {
   const tips = [
-    weatherTip(weather, unit),
+    weatherTip(weather),
     ...tagTips(trail),
     steepnessTip(trail, unit),
     waterTip(trail, unit),

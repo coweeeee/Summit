@@ -1,0 +1,29 @@
+# Supabase CLI configuration.
+#
+# WHY THIS FILE EXISTS, and why it is almost empty:
+#
+# Until now no config.toml existed anywhere in this repo, which meant every
+# edge function's `verify_jwt` posture lived only in whatever flag was passed at
+# deploy time. That is invisible in git and unreviewable -- weather/index.ts
+# asserts "verify_jwt: TRUE" in a source comment, but a comment cannot enforce
+# anything, and a single `--no-verify-jwt` would have silently turned a metered,
+# credential-bearing endpoint into an open one.
+#
+# So this file pins exactly ONE function: `weather`. The other six live
+# functions (delete-account, send-notification, login-with-username,
+# report-alert, share-preview, moderate) are DELIBERATELY NOT LISTED. Four of
+# them run verify_jwt=false on purpose because their callers are not signed in,
+# and declaring them here would restate that from memory rather than from the
+# deployed truth -- getting one wrong would break sign-in or moderation. They
+# keep their current configuration; add them only after confirming each against
+# what is actually deployed.
+
+project_id = "sigupaldsyuaomgllyvw"
+
+[functions.weather]
+# Weather is only ever rendered on trail-detail, which sits behind the auth
+# gate, so there is no unauthenticated caller to serve. The endpoint also spends
+# a metered Apple quota per call and signs each request with the WeatherKit
+# private key, so an anonymous caller would be spending our money with our
+# credentials. Requiring a JWT is the whole point.
+verify_jwt = true

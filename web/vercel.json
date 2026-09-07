@@ -12,6 +12,14 @@
     {
       "source": "/t/:id",
       "destination": "/api/share?type=trail&id=:id"
+    },
+    {
+      "source": "/privacy-policy",
+      "destination": "/api/legal?slug=privacy-policy"
+    },
+    {
+      "source": "/terms-of-service",
+      "destination": "/api/legal?slug=terms-of-service"
     }
   ]
 }

@@ -25,5 +25,8 @@
     "verbatimModuleSyntax": false,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["api/**/*.ts", "api/**/*.tsx"]
+  // legal-content.generated.ts sits at the project root rather than under
+  // api/, because Vercel turns every file in api/ into an endpoint and a
+  // generated data module is not one. It still has to be typechecked.
+  "include": ["api/**/*.ts", "api/**/*.tsx", "legal-content.generated.ts"]
 }
